@@ -1,0 +1,83 @@
+---
+title: "Independence of V and J Primers"
+author: "Wes Horton, Burcu Gurun-Demir"
+date: "May 4, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(reshape2)
+```
+
+## Summary of Dataset and Purpose
+
+We have approximately 170 samples per sequencing batch, and for each sample we have 260 counts, one for each of the unique combinations of V and J primers. The primers have different amplification rates, which we need to characterize. In order to do this most accurately, we need to determine if the forward (V) primer and the reverse (J) primer act independently to influence spike amplification, or if their interaction is important as well.  
+
+Two different PCR batches comprise our sequencing batch. There may be a difference in amplification biases based on these batches as well. In addition, samples were diluted by varying degrees prior to sequencing, and we need to determine if that had an influence.  
+
+### Variables
+
+1. Independent variables
+    + Forward (V) primer identity - 20 total
+    + Reverse (J) primer identity - 13 total
+    + PCR batch identity - 2 total
+    + Tape Station dilution factor  
+  
+  
+2. Dependent variable
+    + Spike Count  
+
+
+Each sample has an individual file containing the 260 counts. These need to be combined into a single data frame prior to the analysis.
+
+```{r cars}
+# Set directory
+count.dir.2 <- "~/Desktop/OHSU/tcr_spike/data/vj_counts/DNA150826/"
+
+# Read in files and sort by sample number
+all.counts.2 <- list.files(count.dir.2)
+all.counts.2 <- all.counts.2[order(as.numeric(gsub(".*_S|.assembled.*", '', all.counts.2)))]
+
+# Read in first file to start aggregate data frame
+count.df.2 <- read.table(file.path(count.dir.2, all.counts.2[1]), sep =',', header = T)
+count.df.2 <- count.df.2[,3:5]
+
+# Comine spike counts for all files into 1 data frame
+  # Columns are samples
+  # Rows are spikes
+for (i in 2:length(all.counts.2)){
+  curr.df.2 <- read.table(file.path(count.dir.2, all.counts.2[i]), sep = ',', header = T)
+  count.df.2 <- cbind(count.df.2, curr.df.2$spike.count)
+}   #   for i in 2:length(new.counts)
+colnames(count.df.2) <- c("V", "J", seq(1:length(all.counts.2)))
+
+
+# Collapse data frame to 1 count column
+melt.count.df.2 <- melt(count.df.2, id.vars = c("V", "J"))
+
+# Take log2 of count values due to geometric distribution
+log2.melt.count.df.2 <- melt.count.df.2
+log2.melt.count.df.2$value <- log2(melt.count.df.2$value + 1)
+
+```
+
+## Linear Regression Model
+
+We want to create a linear regression model in order to test the interaction effect between V and J primers on spike counts. First we'll show an additive model, then a multiplicative model.
+
+```{r}
+# Additive Model
+add.lm.2 <- lm(value ~ V + J, log2.melt.count.df.2)
+#summary(add.lm.2)
+add.adj.r2 <- round(summary(add.lm)$adj.r.squared, digits = 4)
+print(add.adj.r2)
+
+# Multiplicative Model
+mult.lm.2 <- lm(value ~ V * J, log2.melt.count.df.2)
+#summary(mult.lm.2)
+mult.adj.r2 <- round(summary(mult.lm)$adj.r.squared, digits = 4)
+print(mult.adj.r2)
+```
+
+We can see that the multiplicative model explains more variation than the additive. Now we should look at specific V/J pairs to see if there are any specific combinations that are contributing to this increase.
