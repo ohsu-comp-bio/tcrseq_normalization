@@ -1,0 +1,115 @@
+---
+title: "Extracting and Viewing Extra V and J Segments"
+author: "Wes Horton"
+date: "May 5, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem Summary
+
+In our MiXCR export clones files, there are a handful of V and J regions that are called that we don't have primers for. This means that either MiXCR is mistakenly mapping one of our 20 V or 13 J regions to a different region, or some of our primers are amplifying extra V and J regions.  
+
+Is this a problem that we need to address, or is the impact small enough that we can confidently ignore it without jeopardizing our results?
+
+```{r, echo=FALSE}
+# Set spike dir
+spike.dir <- "~/Desktop/OHSU/tcr_spike/"
+# Set clone dir
+clone.dir <- "~/Desktop/OHSU/tcr_spike/data/DNA151124LC/raw_clones/"
+
+# Function to clean mixcr data frame
+clean <- function(mixcr.df){
+  # Remove extraneous characters
+  mixcr.df$"V.segments" <- sub("TRB", "", mixcr.df$"Best.V.hit");
+  mixcr.df$"J.segments" <- sub("TRB", "", mixcr.df$"Best.J.hit");
+  mixcr.df$"V.segments" <- sub("\\*00", "", mixcr.df$"V.segments");
+  mixcr.df$"J.segments" <- sub("\\*00", "", mixcr.df$"J.segments");
+  mixcr.df$"V.segments" <- gsub("-", "", mixcr.df$"V.segments")
+  return(mixcr.df)
+} # clean(mixcr.df)
+```
+
+```{r cars}
+###
+###  Read in spike identity table and extract V and J segment IDs
+###  Read in clonotype files, create empty data frame to populate
+###  Extract extra V and Js from clonotype files and populate data frame
+###
+# Read in spike identity table
+spike.table <- read.delim(paste(spike.dir, "text_barcodesvj.txt", sep = ''),
+                        header = T, sep = ' ')
+
+# Remove trailing dashes for hygiene's sake. Also change V1212 (for consistency)
+spike.table$V <- gsub("-","", spike.table$V)
+spike.table$V <- gsub("V1212", "V121", spike.table$V)
+
+# Extract the V and J sequences from spike table
+vsegs <- unique(spike.table$V)
+jsegs <- unique(spike.table$J)
+  
+# Read in normalized clone files and order them
+all.clones <- list.files(clone.dir)
+all.clones <- all.clones[order(as.numeric(gsub(".*_S|_alignment_.*", '', all.clones)))]
+
+# Create empty data frame to populate
+extra.segs.df <- data.frame()
+summary.extra.segs.df <- data.frame(matrix(nrow = 0, ncol = 7))
+
+
+# Populate summary data frame
+for (i in 1:length(all.clones)){
+  # Read in clone file
+  curr.df <- read.table(file.path(clone.dir, all.clones[i]), sep = '\t', header = T)
+  # Clean up segments
+  curr.df <- clean(curr.df)
+  
+  # Extract V and J segments not in our 260
+  curr.extra.V <- curr.df[!(curr.df$V.segments %in% vsegs),]
+  curr.extra.J <- curr.df[!(curr.df$J.segments %in% jsegs),]
+  curr.extras <- rbind(curr.extra.V, curr.extra.J)
+
+  # Create vector of sample name to combine with df
+  sample <- rep(strsplit(all.clones[i], split = "_")[[1]][3], length(curr.extras[,1]))
+  
+  # Combine
+  curr.extras <- cbind(sample, curr.extras)
+  
+  # Add to overall df
+  extra.segs.df <- rbind(extra.segs.df, curr.extras)
+  
+  # Populate Summary Table
+  num.clone <- as.numeric(length(curr.extras$sample))
+  percent.clone <- as.numeric(num.clone / length(curr.df$Clone.count) * 100)
+  num.count <- as.numeric(sum(curr.extras$Clone.count))
+  percent.count <- as.numeric(num.count / sum(curr.df$Clone.count) * 100)
+  vs <- as.character(unique(curr.extra.V$V.segments))
+  vs <- paste(vs, collapse = ' ')
+  js <- as.character(unique(curr.extra.J$J.segments))
+  js <- paste(js, collapse = ' ')
+  
+  new.row <- c(sample[1], num.clone, percent.clone, num.count, percent.count, vs, js)
+  
+  summary.extra.segs.df <- rbind(summary.extra.segs.df, new.row, stringsAsFactors = F)
+  
+}  #  for
+
+colnames(summary.extra.segs.df) <- c("Sample", "Number of clonotypes", "Percent of Total Clonotypes", 
+                                     "Clonotype Count", "Percent of Total Count", "Extra Vs",
+                                     "Extra Js")
+```
+
+## Evaluation
+
+Let's look at a brief summary of the percent columns to see how big of an impact this is
+
+```{r }
+summary(as.numeric(summary.extra.segs.df$`Percent of Total Clonotypes`))
+summary(as.numeric(summary.extra.segs.df$`Percent of Total Count`))
+
+```
+
+
