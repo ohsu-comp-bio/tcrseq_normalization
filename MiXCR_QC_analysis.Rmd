@@ -1,0 +1,139 @@
+---
+title: "MiXCR QC Analysis"
+author: "Wes Horton"
+date: "May 6, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+source("http://peterhaschke.com/Code/multiplot.R")
+```
+
+## Summary
+
+We need to determine if we can use MiXCR clonotype count outputs as a proxy for depth of coverage. To do so, we need to figure out how reads are aligned and assembled. Are they grouped together too often, what is the reasoning behind the grouping, what happens if we change certain parameters, etc.  
+
+
+```{r, echo = FALSE}
+# Read in align and assemble QC files
+align <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/mixcr.alignment.QC.summary.txt", sep = ",", header = T)
+sample <- as.numeric(gsub(".*S|.assembled.*", '', align$inputs))
+align <- cbind(sample, align)
+assemble <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/mixcr.assemble.QC.summary.txt", sep = ",", header = T)
+sample <- as.numeric(gsub(".*S|_align.*", '', assemble$inputs))
+assemble <- cbind(sample, assemble)
+# Remove sample 142
+assemble <- assemble[1:169,]
+align <- align[1:169,]
+
+
+```
+
+#### Alignment
+
+First, lets look at a boxplot of the percentages of aligned reads for each sample as well as a summary of the distribution:
+
+```{r, echo=FALSE}
+pct.align <- ggplot(align, aes(x = 1, y = aligned.pct)) + 
+  geom_boxplot() +
+  scale_x_continuous(breaks=NULL) +
+  theme(axis.title.x = element_blank())
+pct.align + ylab("Percent") + ggtitle("MiXCR Align\nSuccessfully Alighned Reads")
+summary(align$aligned.pct)
+```
+
+We see that most of the samples aligned greater than 80% of their reads, but a few have relatively poor alignments. Why is this?
+
+```{r, echo = FALSE}
+pct.low.score <- ggplot(align, aes(x = 1, y = failed.alignment.low.score)) +
+  geom_boxplot() +
+  scale_x_continuous(breaks=NULL) +
+  theme(axis.title.x = element_blank()) +
+  ylab("Percent") + 
+  ggtitle("MiXCR Align\nFailed Alignment Due to Low Score")
+
+failed.j <- ggplot(align, aes(x = 1, y = failed.alignment.j.hits)) +
+  geom_boxplot() +
+  scale_x_continuous(breaks=NULL) +
+  theme(axis.title.x = element_blank()) + 
+  ylab("Percent") + 
+  ggtitle("MiXCR Align\nFailed Alignment Due to No J Hit")
+
+multiplot(pct.low.score, failed.j, cols=1)
+print("Failed Due to Low Score:")
+summary(align$failed.alignment.low.score)
+print("Failed Due to No J Hit:")
+summary(align$failed.alignment.j.hits)
+```
+Looks like most reads are not aligning due to a lack of J hit. Where are these reads coming from? How do 20% of our reads not have a matching J alignment? Should we relax the parameters for calling a hit? We could potentially extract these reads from the fastq file (I think) and re-run just them through mixcr with relaxed parameters and see how many more we catch.
+
+#### Assemble
+
+Lets do the same for the assemble QC file. 
+
+```{r, echo = FALSE}
+pct.assemble <- ggplot(assemble, aes(x = 1, y = pct.total.reads.used)) +
+  geom_boxplot() +
+  scale_x_continuous(breaks=NULL) +
+  theme(axis.title.x = element_blank()) + 
+  ylab("Percent") + 
+  ggtitle("MiXCR Assemble\nAssembled Reads")
+
+pct.core <- ggplot(assemble, aes(x = 1, y = pct.reads.used.as.core)) +
+  geom_boxplot() +
+  scale_x_continuous(breaks=NULL) +
+  theme(axis.title.x = element_blank()) + 
+  ylab("Percent") + 
+  ggtitle("MiXCR Assemble\nAssembled Reads Used as Core Clones")
+
+pct.no.clonotype <- ggplot(assemble, aes(x = 1, y = pct.reads.dropped.no.clonal.sequence)) +
+  geom_boxplot() +
+  scale_x_continuous(breaks=NULL) +
+  theme(axis.title.x = element_blank()) + 
+  ylab("Percent") + 
+  ggtitle("MiXCR Assemble\nNo Clonal Sequence")
+
+clon.elim.error <- ggplot(assemble, aes(x = clonotypes.elim.error.corr)) +
+  geom_histogram() +
+  scale_x_continuous(breaks=seq(0, 16000, by = 2000)) +
+  #theme(axis.title.x = element_blank()) + 
+  #ylab("Percent") + 
+  ggtitle("MiXCR Assemble\nClonotypes eliminated by PCR Error Correction")
+
+multiplot(pct.assemble, pct.core, pct.no.clonotype, clon.elim.error, cols = 2)
+```
+
+These data don't look very good. A majority of the samples assemble less than 20% of their reads to clonotypes. We also see that most unassembled reads were not assembled due to a lack of clonal sequence (top right boxplot). The other reasons are due to low quality (none were dropped) and due to failure to map to a core clone:
+
+```{r, echo = FALSE}
+summary(assemble$pct.reads.dropped.failed.mapping)
+```
+
+Which is also pretty small. From the lower left plot, we see that of the reads assembled, most of them are used as core clonotypes. Finally, from the histogram, we see that quite a few clonotypes are eliminated from the overall count due to the PCR error correction, although many lose fewer than 700. Let's look at the summary:
+
+```{r, echo = FALSE}
+summary(assemble$clonotypes.elim.error.corr)
+```
+
+#### Compare clonotypes to Reads
+
+To Do: Not sure if this is appropriate or not.
+
+Let's make a few comparisons here. Total clonotype count of a sample can be compared to the reads used in assembly, which should give us a handle on how many reads we're losing to clustering? We can also compare the distributions of clonotype counts for each sample.
+
+```{r, echo - FALSE}
+clone.dir <- "~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/clones/"
+clone.files <- list.files(clone.dir)
+clone.files <- clone.files[order(as.numeric(gsub(".*_S|_align.*", '', clone.files)))]
+
+for (i in 1:length(clone.files)){
+  curr.clone <- read.delim(file.path(clone.dir, clone.files[i]), header = T, sep = '\t')
+  clone.count <- sum(curr.clone$Clone.count)
+  
+
+}
+
+```

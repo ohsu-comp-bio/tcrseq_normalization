@@ -33,33 +33,39 @@ Each sample has an individual file containing the 260 counts. These need to be c
 
 ```{r cars}
 # Set directory
-count.dir.2 <- "~/Desktop/OHSU/tcr_spike/data/vj_counts/DNA150826/"
+count.dir <- "~/Desktop/OHSU/tcr_spike/data/vj_counts/DNA150826/"
 
 # Read in files and sort by sample number
-all.counts.2 <- list.files(count.dir.2)
-all.counts.2 <- all.counts.2[order(as.numeric(gsub(".*_S|.assembled.*", '', all.counts.2)))]
+all.counts <- list.files(count.dir)
+all.counts <- all.counts[order(as.numeric(gsub(".*_S|.assembled.*", '', all.counts)))]
 
 # Read in first file to start aggregate data frame
-count.df.2 <- read.table(file.path(count.dir.2, all.counts.2[1]), sep =',', header = T)
-count.df.2 <- count.df.2[,3:5]
+count.df <- read.table(file.path(count.dir, all.counts[1]), sep =',', header = T)
+count.df <- count.df[,3:5]
 
 # Comine spike counts for all files into 1 data frame
   # Columns are samples
   # Rows are spikes
-for (i in 2:length(all.counts.2)){
-  curr.df.2 <- read.table(file.path(count.dir.2, all.counts.2[i]), sep = ',', header = T)
-  count.df.2 <- cbind(count.df.2, curr.df.2$spike.count)
+for (i in 2:length(all.counts)){
+  curr.df <- read.table(file.path(count.dir, all.counts[i]), sep = ',', header = T)
+  count.df <- cbind(count.df, curr.df$spike.count)
 }   #   for i in 2:length(new.counts)
-colnames(count.df.2) <- c("V", "J", seq(1:length(all.counts.2)))
+colnames(count.df) <- c("V", "J", seq(1:length(all.counts)))
 
+head(count.df[,1:10], n = 20)
 
 # Collapse data frame to 1 count column
-melt.count.df.2 <- melt(count.df.2, id.vars = c("V", "J"))
+melt.count.df <- melt(count.df, id.vars = c("V", "J"))
 
 # Take log2 of count values due to geometric distribution
-log2.melt.count.df.2 <- melt.count.df.2
-log2.melt.count.df.2$value <- log2(melt.count.df.2$value + 1)
+log2.melt.count.df <- melt.count.df
+log2.melt.count.df$value <- log2(melt.count.df$value + 1)
 
+head(log2.melt.count.df, n = 20)
+# V is all V segments, repeated for each J for each sample
+# J is all J segments, repeated same as V
+# Variable corresponds to sample number
+# Value is log2 of count
 ```
 
 ## Linear Regression Model
@@ -68,16 +74,27 @@ We want to create a linear regression model in order to test the interaction eff
 
 ```{r}
 # Additive Model
-add.lm.2 <- lm(value ~ V + J, log2.melt.count.df.2)
-#summary(add.lm.2)
+add.lm <- lm(value ~ V + J, log2.melt.count.df)
+summary(add.lm)
 add.adj.r2 <- round(summary(add.lm)$adj.r.squared, digits = 4)
-print(add.adj.r2)
 
 # Multiplicative Model
-mult.lm.2 <- lm(value ~ V * J, log2.melt.count.df.2)
-#summary(mult.lm.2)
+mult.lm <- lm(value ~ V * J, log2.melt.count.df)
+summary(mult.lm)
 mult.adj.r2 <- round(summary(mult.lm)$adj.r.squared, digits = 4)
-print(mult.adj.r2)
+paste("Additive R^2:", add.adj.r2, sep = ' ')
+paste("Multiplicative R^2:", mult.adj.r2, sep = ' ')
 ```
 
 We can see that the multiplicative model explains more variation than the additive. Now we should look at specific V/J pairs to see if there are any specific combinations that are contributing to this increase.
+
+```{r}
+start <- lm(value ~ 1, log2.melt.count.df)
+summary(start)
+finish <- lm(value ~ V + J + V:J, log2.melt.count.df)
+summary(finish)
+test <- step(mult.lm, scope = list(lower = start, upper = finish), direction = "forward")
+summary(test)
+test$anova
+
+```
