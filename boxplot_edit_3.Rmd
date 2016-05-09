@@ -1,0 +1,214 @@
+---
+title: "Across Sample and Within Sample Boxplot  of Spike Percentages"
+author: "Wes Horton, Burcu Gurun-Demir"
+date: "May 1, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(magrittr)
+library(reshape2)
+library(ggplot2)
+library(scales)
+
+```
+
+## Description of data. 
+
+In a given batch, we have approximately 170 samples (give or take a few). Each sample is comprised of T-cell DNA as well as 260 unique synthetic (spike-in) DNA sequences. Sequences are amplified in a multiplex PCR reaction using 20 forward and 13 reverse primers. Forward primers bind to the V region of T-cell CDR3 sequences, and reverse primers bind to the J region of the same sequence. The 260 combinations of forward and reverse primers act to amplify all possible CDR3 rearrangements that occur within a given sample, as well as all of the spikes.  
+Each sample has a spike percentage that is calculated as the total number of spiked reads divided by the total number of reads. All three of these values are calculated in the count.spikes QC script for the 9-bp spike. The 25-bp count spike QC file contains the same information, but instead of summarizing total spikes, the values are divided for each of the 260 unique spikes, listing their counts and their percentage relative to total reads.  
+
+### Set up  
+
+Before we begin, we must first read in our data. We want to grab the aggregate 9-bp spike count qc file, the aggregate 25-bp spike count qc file, as well as the metadata file for this particular batch. The qc files contain one row for each sample, with a variety of columns. Those of interest columns 2, 3 and 4. They correspond to total reads in the file, number of spiked reads, and spiked reads as a percent of total reads, respectively. The metadata file will be used later for when we subset by sample type. It contains one row for each sample, and specifies sample type and treatment.  
+We're working with data with many small and large values, so we need to transform our counts so that we can observe them all at the same time. Instead of representing percent, we will be displaying log(percent\*), where percent\* = 100(count+1)/total.
+
+
+
+```{r}
+# Read in qc files
+qc.file <- "./box_download/9bp.count.spikes.QC.summary.txt"
+qc.data <- read.table(qc.file, header = T, sep = ',', stringsAsFactors = F)
+qc.file.25 <- "./box_download/25bp.count.spikes.QC.summary.txt"
+qc.data.25 <- read.table(qc.file.25, header = T, sep = ',', stringsAsFactors = F)
+
+### Clean up tables
+# Remove file path from sample ID
+ids.9 <- strsplit(qc.data$sample.id, split = "/")
+ids.9 <- sapply(ids.9, function(x) x[12])
+qc.data$sample.id <- ids.9
+
+ids.25 <- strsplit(qc.data.25$sample.id, split = "/")
+ids.25 <- sapply(ids.25, function(x) x[12])
+qc.data.25$sample.id <- ids.25
+
+# Sort by sample number
+qc.data$num <- as.numeric(gsub(".*_S|\\..*", '',qc.data$sample.id))
+qc.data <- arrange(qc.data, num)
+
+qc.data.25$num <- as.numeric(gsub(".*_S|\\..*", '',qc.data.25$sample.id))
+qc.data.25 <- arrange(qc.data.25, num)
+
+# Remove Sample 142 because it has erroneous data
+qc.data <- qc.data[-142,]
+qc.data.25 <- qc.data.25[-142,]
+
+# Add batch column for plotting with ggplot
+qc.data$batch <- rep("151124", 169)
+
+# Read in metadata file
+metadata.file <- "./box_download/151124_qc_metadata.txt"
+metadata <- read.table(metadata.file)
+
+fexp <- function(l) {
+     # turn in to character string in scientific notation
+     l <- format(l, scientific = TRUE)
+     # quote the part before the exponent to keep all the digits
+     l <- gsub("^(.*)e", "'\\^'e", l)
+     # turn the 'e+' into plotmath format
+     l <- gsub("e", "^", l)
+     # return this as an expression
+     parse(text=l)
+}
+
+
+```
+
+#### Summary by Sample Type  
+
+```{r}
+summary(metadata)
+```
+
+We can see that a majority of the samples are ffpe tumor, but we have a few blood samples as well as some control. 
+
+
+```{r, echo = FALSE}
+### Subset the Data by Tissue Type
+# Add metadata columns to qc file
+qc.data.25$tissue <- metadata$V3
+
+# Read in spike file
+spikes <- read.table("./box_download/text_barcodesvj.txt", sep = ' ', header = T)
+
+### Transform qc data frame
+# taken out for now b/c trying normal percents with log scale
+qc.data.25.xformnorm <- (qc.data.25[,5:264]+1)/(qc.data.25[,2])
+
+# Changing axis scale, but using same data as before
+qc.data.25.xformnorm <- data.frame(t((qc.data.25.xformnorm)))
+
+colnames(qc.data.25.xformnorm) <- qc.data.25$num
+tissue.lookup<-qc.data.25[265:266]
+tissue.lookup$num<-sub("^","X",tissue.lookup$num)
+
+# Add V and J Labels from spike file
+# We need to add these so that we can group by them
+qc.data.25.xformnorm <- data.frame(V = spikes$V, J = spikes$J, qc.data.25.xformnorm)
+
+linearizedSpikeN<-melt(qc.data.25.xformnorm,id_vars=c("V","J"))
+linearizedSpikeN<-merge(tissue.lookup, linearizedSpikeN, by.x = "num", by.y="variable")
+
+### NEW ###
+```
+
+##Terry's Question 1: Aggregate boxplots of samples
+
+First, we'll produce a boxplot of all of the samples in the batch, so that we can have some idea about the distribution.
+
+
+```{r, echo = FALSE}
+# Un-transformed data
+# Old version with base plotting
+#boxplot(qc.data$pct.spiked.reads, main = "Percent Spikes in DNA151124LC", xlab = "Sample",
+ #       ylab = "Spiked reads as percent of Total")
+### NEW - CHANGED TO GGPLOT ###
+ttlbp <- ggplot(qc.data, aes(x = batch,y = pct.spiked.reads, group = batch)) + geom_boxplot()
+ttlbp
+```
+
+**Interpretation**: We can see that most of the total spike count percents clustered between 3%-10%. There are some samples producing large total spike count percents. To see the variation better, we use log (base 10) transformed data.
+
+```{r, echo = FALSE}
+
+# Boxplot
+# Old version with base plotting
+#boxplot(qc.log.data$log.pct.spiked.reads, main = "Percent Spikes in DNA151124LC",
+#        xlab="Sample", ylab = "Log-Transformed Percent Spiked Reads")
+### NEW - CHANGED TO GGPLOT ###
+ttlbp + scale_y_continuous(trans = 'log10', labels=fexp) + ylab("*% spike counts")
+```
+
+**Interpretation**: Data is log (base 10) transformed. In this display (and in the following ones), ^ corresponds to 10 (for example, ^ -1 corresponds to 0.1% spike counts. For some samples, the total number of spike count percents is below 1%. Now, We will group them by the issue type.
+
+```{r, echo = FALSE}
+# Add metadata columns to qc file
+#qc.log.data$tissue <- metadata$V3
+qc.data$tissue <- metadata$V3
+
+#alternative ggplot
+sbst<-ggplot(qc.data, aes(x=tissue, y= pct.spiked.reads, group=tissue)) + geom_boxplot()+ scale_y_continuous(trans = 'log10', labels=fexp) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ylab("*% spike counts")
+sbst
+# Use un-transformed data and place on transformed scale
+```
+
+We can see that almost all of the total spike count percents below 1% correspond to blood samples. Control and FFPE tissue type produce values within the same range. 
+
+##Terry's Question 2: Splitting the 260 V/J combos by V and J regions 
+
+As mentioned above, we have 260 different primer combinations. It will be informative to look at the total spike reads (as a percent of total reads) for each of the V primers and for each of the J primers. Then, we will look at these totals by sample type. 
+
+We need to group the spike counts by each V primer, i.e. sum the counts for V1J1, V1J2, V1J3, etc. for all twenty V primers, and again for all thirteen J primers. To do this, we need to use the 25-bp qc file instead of the 9-bp file. We also need to read in the original spike file so that we can convert the DM_# labels into V/J labels. 
+
+```{r}
+
+bpv<-ggplot(linearizedSpikeN, aes(x=V, y=100*value, fill=tissue))+ geom_boxplot() + scale_y_continuous(trans = "log10", labels=fexp) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ylab("*% spike counts")
+bpv
+```
+
+**Interpretation**: The variation of the percent counts across primers seems to be more present in FFPE samples, and the least in the control samples. FFPE samples produce lowliers for seven of the twenty forward primers. Among the forward primers, V20 and V26 might need some further attention as they produce lower counts. In general, blood tissue produces significantly lower counts than control and FFPE. (It is more apperant in V20 and V26) It produces percent counts within different ranges as blood is coming from a different distribution from the FFPE distribution. We also noted that the variation within a primer for control is very high as the range of spike count percentages is very large (2-3 orders of magnitude). 
+
+```{r}
+bpj<-ggplot(linearizedSpikeN, aes(x=J, y=100*value, fill=tissue))+ geom_boxplot() + scale_y_continuous(trans = "log10", labels=fexp) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ylab("*% spike counts")
+bpj
+
+```
+
+**Interpretation**: The variation of the percent counts across primers seems to be a bit more present in FFPE samples. FFPE samples produce lowliers for four of the thirteen reverse primers. Among them, least counts belong to J1-3. In general, blood tissue produces significantly lower counts than control and FFPE. This is because the blood is coming from a different distribution from the FFPE distribution producing percent counts within different ranges. We also noted that the variation within a primer for control is very high as the range of spike count percentages is very large (2-3 orders of magnitude).
+
+
+##Terry's Question 3 VxJ boxplot matrix 
+
+Zooming in even further, instead of grouping by V and J segment, we can look at each individual V/J combination for all of our samples. We will draw two faceted boxplot matrices, one across V and one "flipped" version across J. 
+
+```{r fig.width=25, fig.height=25, dpi=75}
+theme <- theme_update(legend.position="top", legend.title=element_blank(), axis.text.y = element_text(size=10))
+
+mbp<-ggplot(linearizedSpikeN, aes(x=V, y=100*value, fill=tissue))+ geom_boxplot() + scale_y_continuous(trans="log10", labels= fexp) + facet_grid(J~.)+ ylab("*% spike counts")+ theme 
+mbp
+
+#mbp.flip<- ggplot(linearizedSpikeN, aes(x=J, y=100*value, fill=tissue))+ coord_flip()+ geom_boxplot() + scale_y_continuous(trans="log10", labels= fexp) + facet_grid(.~V)+ ylab("*% spike counts") +theme 
+#mbp.flip
+```
+
+**Interpretation**: The plot of the 260 primer combinations show the percent spike count variation across samples. V26 and V20 produce mixed counts when combined with some of the reverse primers. J1-3 seems to produce lower counts when combined with some of the forward primers.
+
+
+##Terry's Question 4: Looking at the variation within samples
+
+Now, we will look at the distribution of spike counts within a sample and plot them next to each other. We will also stratify them by sample type using different colors. 
+
+
+```{r fig.width=175, fig.height=25, dpi=75}
+mbpa<-ggplot(linearizedSpikeN, aes(x=num, y=100*value, fill=tissue))+ geom_boxplot()
+mbpa<-mbpa+ scale_y_continuous(trans = "log10", labels=fexp) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ylab("*% spike counts")
+mbpa
+
+
+```
+
+**Interpretation**: We can see that this plot also points at the blood samples producing lower percent spike counts than both ffpe and control. The variation of percent counts across samples seem to be high in all types of tissues. 
+
+
