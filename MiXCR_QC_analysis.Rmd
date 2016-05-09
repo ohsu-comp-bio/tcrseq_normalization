@@ -2,7 +2,7 @@
 title: "MiXCR QC Analysis"
 author: "Wes Horton"
 date: "May 6, 2016"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
@@ -19,15 +19,68 @@ We need to determine if we can use MiXCR clonotype count outputs as a proxy for 
 
 ```{r, echo = FALSE}
 # Read in align and assemble QC files
-align <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/mixcr.alignment.QC.summary.txt", sep = ",", header = T)
-sample <- as.numeric(gsub(".*S|.assembled.*", '', align$inputs))
-align <- cbind(sample, align)
-assemble <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/mixcr.assemble.QC.summary.txt", sep = ",", header = T)
-sample <- as.numeric(gsub(".*S|_align.*", '', assemble$inputs))
-assemble <- cbind(sample, assemble)
+# First is original run
+align1 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/mixcr.alignment.QC.summary.txt", sep = ",", header = T)
+sample <- as.numeric(gsub(".*S|.assembled.*", '', align1$inputs))
+version <- rep("1.6", length(align1$analysis.date))
+align1 <- cbind(sample, version, align1)
+
+# second is using mixcr 1.7.1
+align2 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/new.mixcr.alignment.QC.summary.txt", sep = ",", header = T)
+sample <- as.numeric(gsub(".*S|.assembled.*", '', align2$inputs))
+version <- rep("1.7", length(align2$analysis.date))
+align2 <- cbind(sample, version, align2)
+
+# third is using mixcr 1.7.1 and paired end reads
+align3 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/unPEAR.mixcr.alignment.QC.summary.txt", sep = ",", header = T)
+sample <- as.numeric(gsub(".*S|_R.*", '', align3$inputs))
+version <- rep("unPEAR_1.7", length(align3$analysis.date))
+align3 <- cbind(sample, version, align3)
+
+# Version 4 - equimolar 1.6
+align4 <- read.delim("~/Desktop/OHSU/tcr_spike/data/DNA160107LC/QC/mixcr.alignment.QC.summary.txt", sep = ',', header = T)
+sample <- as.numeric(gsub(".*S|\\..*", '', align4$inputs))
+version <- rep("equimol_1.6", length(align4$analysis.date))
+align4 <- cbind(sample, version, align4)
+
+#Combine them
+align <- rbind(align1, align2, align3, align4)
+
+# Same for assemble
+# Original
+assemble1 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/mixcr.assemble.QC.summary.txt", sep = ",", header = T)
+sample <- as.numeric(gsub(".*S|_align.*", '', assemble1$inputs))
+version <- rep("1.6", length(assemble1$analysis.date))
+assemble1 <- cbind(sample, version, assemble1)
+
+# 1.7.1
+assemble2 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/new.mixcr.assemble.QC.summary.txt", sep = ",", header = T)
+sample <- as.numeric(gsub(".*S|_align.*", '', assemble2$inputs))
+version <- rep("1.7", length(assemble2$analysis.date))
+assemble2 <- cbind(sample, version, assemble2)
+
+# 1.7.1 and paired end reads
+assemble3 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/new.mixcr.assemble.QC.summary.txt", sep = ",", header = T)
+sample <- as.numeric(gsub(".*S|_align.*", '', assemble3$inputs))
+version <- rep("unPEAR_1.7", length(assemble3$analysis.date))
+assemble3 <- cbind(sample, version, assemble3)
+
+# 4 - equimolar 1.6
+assemble4 <- read.delim("~/Desktop/OHSU/tcr_spike/data/DNA160107LC/QC/mixcr.assemble.QC.summary.txt", header = T, sep = ',')
+sample <- as.numeric(gsub(".*S|_align.*", '', assemble4$inputs))
+version <- rep("equimol_1.6", length(assemble4$analysis.date))
+assemble4 <- cbind(sample, version, assemble4)
+
+# Combine
+assemble <- rbind(assemble1, assemble2, assemble3, assemble4)
+
 # Remove sample 142
-assemble <- assemble[1:169,]
-align <- align[1:169,]
+assemble <- assemble[!(assemble$sample == "142"),]
+align <- align[!(align$sample == "142"),]
+
+# Calculate percent of clonotypes eliminated by PCR Error Correction
+assemble$total.pot.clones <- assemble$clonotype.count + assemble$clonotypes.elim.error.corr
+assemble$pct.lost.to.pcr.corr <- assemble$clonotypes.elim.error.corr / assemble$total.pot.clones * 100
 
 
 ```
@@ -37,36 +90,49 @@ align <- align[1:169,]
 First, lets look at a boxplot of the percentages of aligned reads for each sample as well as a summary of the distribution:
 
 ```{r, echo=FALSE}
-pct.align <- ggplot(align, aes(x = 1, y = aligned.pct)) + 
-  geom_boxplot() +
-  scale_x_continuous(breaks=NULL) +
-  theme(axis.title.x = element_blank())
-pct.align + ylab("Percent") + ggtitle("MiXCR Align\nSuccessfully Alighned Reads")
-summary(align$aligned.pct)
+pct.align <- ggplot(align, aes(x = factor(version), y = aligned.pct, group = version)) + 
+  geom_boxplot() #+
+  #scale_x_continuous(breaks=NULL) +
+  #theme(axis.title.x = element_blank())
+pct.align + ylab("Percent Aligned of Total") + ggtitle("160107 Align\nSuccessfully Aligned Reads") +
+  xlab("MiXCR Version")
+# To Do: Add caption explaining what each version means
+summary(align[align$version == "1.6", 9])
+summary(align[align$version == "1.7", 9])
+summary(align[align$version == "unPEAR_1.7", 9])
 ```
 
 We see that most of the samples aligned greater than 80% of their reads, but a few have relatively poor alignments. Why is this?
 
 ```{r, echo = FALSE}
-pct.low.score <- ggplot(align, aes(x = 1, y = failed.alignment.low.score)) +
+pct.low.score <- ggplot(align, aes(x = version, y = failed.alignment.low.score,
+                                   group = version)) +
   geom_boxplot() +
-  scale_x_continuous(breaks=NULL) +
+  #scale_x_continuous(breaks=NULL) +
   theme(axis.title.x = element_blank()) +
-  ylab("Percent") + 
-  ggtitle("MiXCR Align\nFailed Alignment Due to Low Score")
+  ylab("Percent Not Aligned of Total") + 
+  xlab("MiXCR Version") +
+  ggtitle("160107 Align\nFailed Alignment Due to Low Score")
 
-failed.j <- ggplot(align, aes(x = 1, y = failed.alignment.j.hits)) +
+failed.j <- ggplot(align, aes(x = version, y = failed.alignment.j.hits,
+                              group = version)) +
   geom_boxplot() +
-  scale_x_continuous(breaks=NULL) +
-  theme(axis.title.x = element_blank()) + 
-  ylab("Percent") + 
-  ggtitle("MiXCR Align\nFailed Alignment Due to No J Hit")
+  #scale_x_continuous(breaks=NULL) +
+  #theme(axis.title.x = element_blank()) + 
+  ylab("Percent Not Aligned of Total") + 
+  xlab("MiXCR Version") +
+  ggtitle("160107 Align\nFailed Alignment Due to Absence of J Hit")
 
 multiplot(pct.low.score, failed.j, cols=1)
 print("Failed Due to Low Score:")
-summary(align$failed.alignment.low.score)
+
+summary(align[align$version == "1.6", 13])
+summary(align[align$version == "1.7", 13])
+summary(align[align$version == "unPEAR_1.7", 13])
 print("Failed Due to No J Hit:")
-summary(align$failed.alignment.j.hits)
+summary(align[align$version == "1.6", 12])
+summary(align[align$version == "1.7", 12])
+summary(align[align$version == "unPEAR_1.7", 12])
 ```
 Looks like most reads are not aligning due to a lack of J hit. Where are these reads coming from? How do 20% of our reads not have a matching J alignment? Should we relax the parameters for calling a hit? We could potentially extract these reads from the fastq file (I think) and re-run just them through mixcr with relaxed parameters and see how many more we catch.
 
@@ -75,35 +141,57 @@ Looks like most reads are not aligning due to a lack of J hit. Where are these r
 Lets do the same for the assemble QC file. 
 
 ```{r, echo = FALSE}
-pct.assemble <- ggplot(assemble, aes(x = 1, y = pct.total.reads.used)) +
+pct.assemble <- ggplot(assemble, aes(x = version, y = pct.total.reads.used, 
+                                     group = version)) +
   geom_boxplot() +
-  scale_x_continuous(breaks=NULL) +
-  theme(axis.title.x = element_blank()) + 
-  ylab("Percent") + 
-  ggtitle("MiXCR Assemble\nAssembled Reads")
+  #scale_x_continuous(breaks=NULL) +
+  #theme(axis.title.x = element_blank()) + 
+  ylab("Percent Reads Used of Total") +
+  xlab("MiXCR Version") +
+  ggtitle("160107 Assemble\nAssembled Reads")
 
-pct.core <- ggplot(assemble, aes(x = 1, y = pct.reads.used.as.core)) +
+pct.core <- ggplot(assemble, aes(x = version, y = pct.reads.used.as.core, group = version)) +
   geom_boxplot() +
-  scale_x_continuous(breaks=NULL) +
-  theme(axis.title.x = element_blank()) + 
-  ylab("Percent") + 
-  ggtitle("MiXCR Assemble\nAssembled Reads Used as Core Clones")
+  #scale_x_continuous(breaks=NULL) +
+  #theme(axis.title.x = element_blank()) + 
+  ylab("Reads Used for Core (Percent of Reads Used)") + 
+  xlab("MiXCR Version") +
+  ggtitle("160107 Assemble\nAssembled Reads Used as Core Clones")
 
-pct.no.clonotype <- ggplot(assemble, aes(x = 1, y = pct.reads.dropped.no.clonal.sequence)) +
+pct.no.clonotype <- ggplot(assemble, aes(x = version, 
+                                         y = pct.reads.dropped.no.clonal.sequence,
+                                         group = version)) +
   geom_boxplot() +
-  scale_x_continuous(breaks=NULL) +
-  theme(axis.title.x = element_blank()) + 
-  ylab("Percent") + 
-  ggtitle("MiXCR Assemble\nNo Clonal Sequence")
+  #scale_x_continuous(breaks=NULL) +
+  #theme(axis.title.x = element_blank()) + 
+  ylab("Percent Dropped of Total") + 
+  xlab("MiXCR Version") +
+  ggtitle("160107 Assemble\nReads Dropped Due to No Clonal Sequence")
 
-clon.elim.error <- ggplot(assemble, aes(x = clonotypes.elim.error.corr)) +
+clon.elim.error <- ggplot(assemble, aes(x = pct.lost.to.pcr.corr)) +
   geom_histogram() +
-  scale_x_continuous(breaks=seq(0, 16000, by = 2000)) +
+  #scale_x_continuous(breaks=seq(0, 16000, by = 2000)) +
+  facet_grid(version ~ .) +
   #theme(axis.title.x = element_blank()) + 
   #ylab("Percent") + 
-  ggtitle("MiXCR Assemble\nClonotypes eliminated by PCR Error Correction")
+  ggtitle("160107 Assemble\nClonotypes eliminated by PCR Error Correction")
 
-multiplot(pct.assemble, pct.core, pct.no.clonotype, clon.elim.error, cols = 2)
+pct.assemble
+summary(assemble[assemble$version == "1.6", 9])
+summary(assemble[assemble$version == "1.7", 9])
+summary(assemble[assemble$version == "unPEAR_1.7", 9])
+pct.core 
+summary(assemble[assemble$version == "1.6", 10])
+summary(assemble[assemble$version == "1.7", 10])
+summary(assemble[assemble$version == "unPEAR_1.7", 10])
+pct.no.clonotype
+summary(assemble[assemble$version == "1.6", 14])
+summary(assemble[assemble$version == "1.7", 14])
+summary(assemble[assemble$version == "unPEAR_1.7", 14])
+clon.elim.error
+summary(assemble[assemble$version == "1.6", 13])
+summary(assemble[assemble$version == "1.7", 13])
+summary(assemble[assemble$version == "unPEAR_1.7", 13])
 ```
 
 These data don't look very good. A majority of the samples assemble less than 20% of their reads to clonotypes. We also see that most unassembled reads were not assembled due to a lack of clonal sequence (top right boxplot). The other reasons are due to low quality (none were dropped) and due to failure to map to a core clone:
@@ -124,16 +212,16 @@ To Do: Not sure if this is appropriate or not.
 
 Let's make a few comparisons here. Total clonotype count of a sample can be compared to the reads used in assembly, which should give us a handle on how many reads we're losing to clustering? We can also compare the distributions of clonotype counts for each sample.
 
-```{r, echo - FALSE}
-clone.dir <- "~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/clones/"
-clone.files <- list.files(clone.dir)
-clone.files <- clone.files[order(as.numeric(gsub(".*_S|_align.*", '', clone.files)))]
+```{r, echo = FALSE}
+#clone.dir <- "~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/clones/"
+#clone.files <- list.files(clone.dir)
+#clone.files <- clone.files[order(as.numeric(gsub(".*_S|_align.*", '', clone.files)))]
 
-for (i in 1:length(clone.files)){
-  curr.clone <- read.delim(file.path(clone.dir, clone.files[i]), header = T, sep = '\t')
-  clone.count <- sum(curr.clone$Clone.count)
+#for (i in 1:length(clone.files)){
+#  curr.clone <- read.delim(file.path(clone.dir, clone.files[i]), header = T, sep = '\t')
+#  clone.count <- sum(curr.clone$Clone.count)
   
 
-}
+#}
 
 ```

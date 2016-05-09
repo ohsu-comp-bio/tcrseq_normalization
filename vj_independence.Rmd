@@ -91,10 +91,12 @@ We can see that the multiplicative model explains more variation than the additi
 ```{r}
 start <- lm(value ~ 1, log2.melt.count.df)
 summary(start)
-finish <- lm(value ~ V + J + V:J, log2.melt.count.df)
+finish <- lm(value ~ V * J , log2.melt.count.df)
 summary(finish)
 test <- step(mult.lm, scope = list(lower = start, upper = finish), direction = "forward")
 summary(test)
 test$anova
+test2 <- step(mult.lm, scope = list( ~., finish), direction = "forward")
+test2$anova
 
 ```
