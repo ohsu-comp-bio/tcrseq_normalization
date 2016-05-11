@@ -100,3 +100,34 @@ test2 <- step(mult.lm, scope = list( ~., finish), direction = "forward")
 test2$anova
 
 ```
+
+
+Also going to do a chi squared test. Need to format the data so that we have V's as rows and J's as columns
+
+```{r}
+#row.col <- paste(count.df$V, count.df$J, sep = '')
+#chi.sq.df2 <- data.frame(matrix(nrow = length(row.col), ncol = length(row.col)))
+#rownames(chi.sq.df2) <- row.col
+#colnames(chi.sq.df2) <- row.col
+
+vs <- unique(count.df$V)
+js <- unique(count.df$J)
+chi.sq.df <- data.frame(matrix(nrow = length(vs), ncol = length(js)))
+rownames(chi.sq.df) <- vs
+colnames(chi.sq.df) <- js
+
+subset.count <- count.df[,3:169]
+sum.of.rows <- apply(subset.count, 1, sum)
+
+new.count <- cbind(count.df[,1:2], sum.of.rows)
+
+for (i in 1:length(new.count$sum.of.rows)){
+  v <- as.character(new.count[i,1])
+  j <- as.character(new.count[i,2])
+  sum <- new.count[i,3]
+  rownum <- which(v == row.names(chi.sq.df))
+  colnum <- which(j == colnames(chi.sq.df))
+  chi.sq.df[rownum,colnum] <- sum 
+}
+
+chisq.test(chi.sq.df, correct = F)
