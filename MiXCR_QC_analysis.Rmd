@@ -206,6 +206,7 @@ Should we relax the parameters for calling a hit?
 ##### Moving Forward
 1. Perform primer specificity experiment - amplify synthetic templates with 1 V primer and all J primers, repeating for each V primer. Repeat process with 1 J primer and all V primers.
      + See figure 3 of Carlson et al. 2013 - "Using synthetic templates to design an unbiased multiplex PCR assay"
+     + 
 
 2. Extract all unaligned reads, and re-run them through MiXCR align using relaxed parameters.
      + use -a to save the description line from fastq file. 
@@ -314,7 +315,7 @@ clon.elim.error <- ggplot(assemble, aes(x = pct.lost.to.pcr.corr)) +
   facet_grid(version ~ .) +
   #theme(axis.title.x = element_blank()) + 
   #ylab("Percent") + 
-  xlab("Percent lost to PCR Error Correction")
+  xlab("Percent lost to PCR Error Correction") + 
   ggtitle("160107 Assemble\nClonotypes eliminated by PCR Error Correction")
 
 pct.assemble
