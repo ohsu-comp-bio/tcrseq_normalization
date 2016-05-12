@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(reshape2)
+library(MASS)
 ```
 
 ## Summary of Dataset and Purpose
@@ -64,34 +65,14 @@ melt.count.df$combos <- paste(melt.count.df$V, melt.count.df$J, sep = '')
 log2.melt.count.df <- melt.count.df
 log2.melt.count.df$value <- log2(melt.count.df$value + 1)
 
+
 head(log2.melt.count.df, n = 20)
 # V is all V segments, repeated for each J for each sample
 # J is all J segments, repeated same as V
 # Variable corresponds to sample number
 # Value is log2 of count
 ```
-```{r}
-# Also need to make a data frame in order to do the stepwise regression.
-# A few options : 260 interaction terms as columns
-# This is most likely incorrect and/or irrelevant
-# add.lms <- list()
-# mult.lms <- list()
-# mult.lms.r2 <- list()
-# vs <- as.character(unique(log2.melt.count.df$V))
-# js <- as.character(unique(log2.melt.count.df$J))
-# for (i in 1:length(vs)){
-#   v <- vs[i]
-#   for(k in 1:length(js)){
-#     j <- js[k]
-#     curr.sub.melt <- log2.melt.count.df[!(log2.melt.count.df$V == v &
-#                                             log2.melt.count.df$J == j),]
-#     curr.mult <- lm(value ~ V * J, curr.sub.melt)
-#     curr.r2 <- round(summary(curr.mult)$adj.r.squared, digits = 4)
-#     mult.lms.r2 <- c(mult.lms.r2, curr.r2)
-#   }
-#   
-# }
-```
+
 
 
 
@@ -116,18 +97,41 @@ paste("Multiplicative R^2:", mult.adj.r2, sep = ' ')
 We can see that the multiplicative model explains more variation than the additive. Now we should look at specific V/J pairs to see if there are any specific combinations that are contributing to this increase.
 
 ```{r}
-start <- lm(value ~ 1, log2.melt.count.df)
-summary(start)
-finish <- lm(value ~ V * J , log2.melt.count.df)
-summary(finish)
-test <- step(mult.lm, scope = list(lower = start, upper = finish), direction = "forward")
-summary(test)
-test$anova
-test2 <- step(mult.lm, scope = list( ~., finish), direction = "forward")
-test2$anova
+# Specify Null Model
+null <- lm(value ~ 1, log2.melt.count.df)
+summary(null)
 
-finish <- lm(value ~ V * J * combos, log2.melt.count.df)
+# Specify Full Model
+full <- lm(value ~ V + J + combos, data = log2.melt.count.df)
+summary(full)
+attr(summary(full)$aliased, "names")
 
+# This freezes R - too many combinations I think.
+#full3 <- lm(value ~ V * J * combos, data = log2.melt.count.df)
+#summary(full3)
+
+# Now Attempt step functions
+# Forward
+stepforward <- step(null, scope = list(lower = null, upper = full), direction = "forward")
+# Not sure why this only goes through:
+# value ~ 1
+# and
+# value ~ combos
+
+summary(stepforward)
+# says call is value ~ comos
+
+# Backward
+stepbackward <- step(full, scope = list(lower =  null, upper = full), direction = "backward")
+# AIC is the same for all of these...
+summary(stepbackward)
+# Says call is same as forward
+
+# Both
+stepboth <- step(full, scope = list(lower = null, upper = full), direction = "both")
+# Only goes one direction
+summary(stepboth)
+# Same call as forward and backward
 
 ```
 
