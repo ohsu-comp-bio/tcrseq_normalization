@@ -57,6 +57,9 @@ head(count.df[,1:10], n = 20)
 # Collapse data frame to 1 count column
 melt.count.df <- melt(count.df, id.vars = c("V", "J"))
 
+# Add pseudo-variable of V/J combos
+melt.count.df$combos <- paste(melt.count.df$V, melt.count.df$J, sep = '')
+
 # Take log2 of count values due to geometric distribution
 log2.melt.count.df <- melt.count.df
 log2.melt.count.df$value <- log2(melt.count.df$value + 1)
@@ -70,34 +73,24 @@ head(log2.melt.count.df, n = 20)
 ```{r}
 # Also need to make a data frame in order to do the stepwise regression.
 # A few options : 260 interaction terms as columns
-add.lms <- list()
-mult.lms <- list()
-mult.lms.r2 <- list()
-vs <- as.character(unique(log2.melt.count.df$V))
-js <- as.character(unique(log2.melt.count.df$J))
-for (i in 1:length(vs)){
-  v <- vs[i]
-  for(k in 1:length(js)){
-    j <- js[k]
-    curr.sub.melt <- log2.melt.count.df[!(log2.melt.count.df$V == v &
-                                            log2.melt.count.df$J == j),]
-    curr.mult <- lm(value ~ V * J, curr.sub.melt)
-    curr.r2 <- round(summary(curr.mult)$adj.r.squared, digits = 4)
-    mult.lms.r2 <- c(mult.lms.r2, curr.r2)
-  }
-  
-}
-  
-  
-for (i in 1:length(new.count$sum.of.rows)){
-  v <- as.character(new.count[i,1])
-  j <- as.character(new.count[i,2])
-  sum <- new.count[i,3]
-  rownum <- which(v == row.names(chi.sq.df))
-  colnum <- which(j == colnames(chi.sq.df))
-  chi.sq.df[rownum,colnum] <- sum 
-}
-
+# This is most likely incorrect and/or irrelevant
+# add.lms <- list()
+# mult.lms <- list()
+# mult.lms.r2 <- list()
+# vs <- as.character(unique(log2.melt.count.df$V))
+# js <- as.character(unique(log2.melt.count.df$J))
+# for (i in 1:length(vs)){
+#   v <- vs[i]
+#   for(k in 1:length(js)){
+#     j <- js[k]
+#     curr.sub.melt <- log2.melt.count.df[!(log2.melt.count.df$V == v &
+#                                             log2.melt.count.df$J == j),]
+#     curr.mult <- lm(value ~ V * J, curr.sub.melt)
+#     curr.r2 <- round(summary(curr.mult)$adj.r.squared, digits = 4)
+#     mult.lms.r2 <- c(mult.lms.r2, curr.r2)
+#   }
+#   
+# }
 ```
 
 
@@ -133,6 +126,9 @@ test$anova
 test2 <- step(mult.lm, scope = list( ~., finish), direction = "forward")
 test2$anova
 
+finish <- lm(value ~ V * J * combos, log2.melt.count.df)
+
+
 ```
 
 
@@ -164,4 +160,5 @@ for (i in 1:length(new.count$sum.of.rows)){
   chi.sq.df[rownum,colnum] <- sum 
 }
 
-chisq.test(chi.sq.df, correct = F)
+test <- chisq.test(chi.sq.df, correct = F)
+summary(test)
