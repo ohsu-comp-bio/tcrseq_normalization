@@ -143,26 +143,126 @@ Also going to do a chi squared test. Need to format the data so that we have V's
 #chi.sq.df2 <- data.frame(matrix(nrow = length(row.col), ncol = length(row.col)))
 #rownames(chi.sq.df2) <- row.col
 #colnames(chi.sq.df2) <- row.col
-
+# Need to create a 20 x 13 matrix of V and J counts for chi-squared test
 vs <- unique(count.df$V)
 js <- unique(count.df$J)
-chi.sq.df <- data.frame(matrix(nrow = length(vs), ncol = length(js)))
-rownames(chi.sq.df) <- vs
-colnames(chi.sq.df) <- js
+v.j.df <- data.frame(matrix(nrow = length(vs), ncol = length(js)))
+rownames(v.j.df) <- vs
+colnames(v.j.df) <- js
 
-subset.count <- count.df[,3:169]
-sum.of.rows <- apply(subset.count, 1, sum)
-
-new.count <- cbind(count.df[,1:2], sum.of.rows)
-
-for (i in 1:length(new.count$sum.of.rows)){
-  v <- as.character(new.count[i,1])
-  j <- as.character(new.count[i,2])
-  sum <- new.count[i,3]
-  rownum <- which(v == row.names(chi.sq.df))
-  colnum <- which(j == colnames(chi.sq.df))
-  chi.sq.df[rownum,colnum] <- sum 
+# Run Chi-squared on each individually and extract p value
+chi.sq.ps <- NULL
+for (i in 3:length(names(count.df))){
+  curr.df <- count.df[,c(1:2,i)]
+  curr.vj <- populate.vj.df(curr.df, v.j.df)
+  curr.chi <- chisq.test(curr.vj, correct = F)
+  curr.p <- curr.chi$p.value
+  chi.sq.ps <- c(chi.sq.ps, curr.p)  
 }
 
-test <- chisq.test(chi.sq.df, correct = F)
-summary(test)
+# Make another to hold scaled values
+scaled.v.j.df <- v.j.df
+
+# Extract counts only
+#subset.count <- count.df[,3:169]
+
+# Transform subset data frame so that rows are samples - do we need to do this?
+#subset.count <- t(subset.count)
+
+# Extract row totals
+# This is a sum of counts for all spikes of a given sample
+#sum.of.rows <- apply(subset.count, 1, sum)
+
+# Extract column totals instead for untransformed df
+#sum.of.samples <- apply(count.df[,3:169], 2, sum)
+
+# Divide each cell in a row by its sum
+#scaled.counts <- apply(subset.count, 2, function(x) x / sum.of.rows)
+# Divide each cell in column by its sum instead
+#scaled.counts <- apply(count.df[,3:169], 1, function(x) x / sum.of.samples)
+#rownames(scaled.counts) <- seq(1:167)
+#colnames(scaled.counts) <- paste(count.df$V, count.df$J, sep = '')
+
+# Sum each row
+count.sums.by.sample <- apply(count.df[,3:169], 1, sum)
+
+# Recombine with names
+count.sums.by.sample <- cbind(count.df[,1:2], count.sums.by.sample)
+
+# Transform and paste to V/J names
+#new.scaled.counts <- cbind(count.df[,1:2], count.sums.by.sample)
+
+# Create data frame with 260 rows (1 for each VJ combo, and a total count)
+# This will be transformed to a 20 x 13 dataframe with cells as counts
+#new.count <- cbind(count.df[,1:2], sum.of.rows)
+
+# Do the same for the scaled data frame
+#new.scaled.counts <- cbind(count.df[,1:2], sample.sums)
+
+# Function to populate df by matching V and J strings
+populate.vj.df <- function(df.of.counts, vj.df){
+  for (i in 1:length(df.of.counts[,3])){
+    v <- as.character(df.of.counts[i,1])
+    j <- as.character(df.of.counts[i,2])
+    sum <- df.of.counts[i,3]
+    rownum <- which(v == row.names(vj.df))
+    colnum <- which(j == colnames(vj.df))
+    vj.df[rownum,colnum] <- sum
+  }  # for
+  return(vj.df)
+}  # populate.vj.df(df.of.counts, vj.df)
+
+# Call function
+v.j.df <- populate.vj.df(count.sums.by.sample, v.j.df)
+scaled.v.j.df <- populate.vj.df(new.scaled.counts, scaled.v.j.df)
+
+new.scaled.v.j.df <- apply(scaled.v.j.df, c(1,2), function(x) x * 10000)
+
+# Run Chi square
+orig.chi <- chisq.test(v.j.df, correct = F)
+orig.chi
+orig.chi$observed
+orig.chi$expected
+
+scaled.chi <- chisq.test(scaled.v.j.df, correct = F)
+scaled.chi
+scaled.chi$observed
+scaled.chi$expected
+
+scaled.chi.2 <- chisq.test(new.scaled.v.j.df, correct = T)
+scaled.chi
+scaled.chi$observed
+scaled.chi$expected
+
+
+# Calculate standardized residuals
+scaled.std.resid <- (scaled.chi$observed - scaled.chi$expected) / (sqrt(scaled.chi$expected))
+
+# Calulate adjusted standardized residuals
+orig.adj.std.resid <- (orig.chi$observed - orig.chi$expected) /
+                        sqrt(orig.chi$expected * ((1 - rowSums(orig.chi$observed) /
+                                                        sum(orig.chi$observed))
+                                                     %*% t(1 - colSums(orig.chi$observed) /
+                                                             sum(orig.chi$observed))))
+
+# Assess individual contributions
+
+
+#######
+#######
+####### Old Stuff
+# Sum rows - this is a sum of counts across all samples, 1 for each spike
+sum.of.rows <- apply(subset.count, 1, sum)
+
+# Take mean of each spike count across the samples
+count.mean <- sum.of.rows / length(names(subset.count))
+
+# Create scaling factor by dividing count mean by 1
+scaling.factor <- 1 / count.mean
+
+# Multiply each column (sample) by scaling factor
+# This should cause each row to be multiplied by the same scaling factor
+scaled.counts <- apply(subset.count, 2, function(x) (x * scaling.factor))
+
+# Sum scaled counts
+sum.scaled.rows <- apply(scaled.counts, 1, sum)
