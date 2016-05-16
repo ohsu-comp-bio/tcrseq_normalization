@@ -135,69 +135,90 @@ summary(stepboth)
 
 ```
 
+Here is a different step function attempt:
+```{r}
+# Need to rearrange the data frame
+# First transform, then create new column with rowsums
+primer.names <- paste(count.df$V, count.df$J, sep = '')
+
+new.count <- cbind(primer.names,
+                   count.df[,3:169], stringsAsFactors = F)
+new.count <- as.data.frame(t(new.count), stringsAsFactors = F)
+new.count <- new.count[c(2:168),]
+new.count <- apply(new.count, c(1,2), function(x) as.numeric(x))
+count.total <- apply(new.count, 1, sum)
+colnames(new.count) <- primer.names
+new.count <- cbind("total" = count.total, new.count)
+new.count <- data.frame(new.count)
+
+test.lm <- lm(total ~ ., new.count)
+
+# This doesn't work either...
+```
+
 
 Also going to do a chi squared test. Need to format the data so that we have V's as rows and J's as columns
 
 ```{r}
-#row.col <- paste(count.df$V, count.df$J, sep = '')
-#chi.sq.df2 <- data.frame(matrix(nrow = length(row.col), ncol = length(row.col)))
-#rownames(chi.sq.df2) <- row.col
-#colnames(chi.sq.df2) <- row.col
 # Need to create a 20 x 13 matrix of V and J counts for chi-squared test
+# This empty matrix will be populated by counts
 vs <- unique(count.df$V)
 js <- unique(count.df$J)
 v.j.df <- data.frame(matrix(nrow = length(vs), ncol = length(js)))
 rownames(v.j.df) <- vs
 colnames(v.j.df) <- js
 
+# We have two options for running the chi-squared. We can sum the counts of all of the samples and do one chi-squared, or we can do 170 chi-squareds, one for each sample.
+
+# Variance and standard deviation of each of the 260 spikes
+spike.var <- apply(subset.count, 1, var)
+spike.sd <- apply(subset.count, 1, sd)
+
+# This is for the second option - 170 individual chi-squared tests:
 # Run Chi-squared on each individually and extract p value
 chi.sq.ps <- NULL
+log.chi.sq.ps <- NULL
 for (i in 3:length(names(count.df))){
   curr.df <- count.df[,c(1:2,i)]
   curr.vj <- populate.vj.df(curr.df, v.j.df)
+  log.curr.vj <- log2(curr.vj + 1)
   curr.chi <- chisq.test(curr.vj, correct = F)
+  curr.log.chi <- chisq.test(log.curr.vj, correct = F)
+  curr.log.p <- curr.log.chi$p.value
   curr.p <- curr.chi$p.value
-  chi.sq.ps <- c(chi.sq.ps, curr.p)  
-}
+  chi.sq.ps <- c(chi.sq.ps, curr.p) 
+  log.chi.sq.ps <- c(log.chi.sq.ps, curr.log.p)
+}  # for
+# Returns a vector of p-values for the chi-squared tests. They're all zero, which means that the null hypothesis of independence of primers is rejected in favor of dependent primers.
 
-# Make another to hold scaled values
-scaled.v.j.df <- v.j.df
 
+# Second option: Run chi-squared for the sum of all of the counts.
+# We want to scale the counts within samples due to the high variation between samples.
 # Extract counts only
-#subset.count <- count.df[,3:169]
+# Rows are spikes, columns are samples
+subset.count <- count.df[,3:169]
 
-# Transform subset data frame so that rows are samples - do we need to do this?
-#subset.count <- t(subset.count)
 
-# Extract row totals
-# This is a sum of counts for all spikes of a given sample
-#sum.of.rows <- apply(subset.count, 1, sum)
+# Extract column totals - this is a sum of all 260 spike counts for a given sample
+sum.of.samples <- apply(subset.count, 2, sum)
 
-# Extract column totals instead for untransformed df
-#sum.of.samples <- apply(count.df[,3:169], 2, sum)
+# Divide each cell in a sample by its sum
+# Since the sum is a vector of length(samples) and our data frame is structured as columns = length(samples), we need to apply over each row, dividing by the entire vector.
+scaled.counts <- apply(subset.count, 1, function(x) x / sum.of.samples)
+# Rows are now samples and columns are spikes...
+rownames(scaled.counts) <- seq(1:167)
+colnames(scaled.counts) <- paste(count.df$V, count.df$J, sep = '')
 
-# Divide each cell in a row by its sum
-#scaled.counts <- apply(subset.count, 2, function(x) x / sum.of.rows)
-# Divide each cell in column by its sum instead
-#scaled.counts <- apply(count.df[,3:169], 1, function(x) x / sum.of.samples)
-#rownames(scaled.counts) <- seq(1:167)
-#colnames(scaled.counts) <- paste(count.df$V, count.df$J, sep = '')
+# Variance and Standard Deviation of scaled counts
+scaled.spike.var <- apply(scaled.counts, 2, var)
+scaled.spike.sd <- apply(scaled.counts, 2, sd)
 
+# Now that we've scaled each of the counts, we want to sum each row so that we get a total count for each of the 260 spikes, from all 170 samples. Remember, we need 260 values to populate our 20x13 chi-squared matrix.
 # Sum each row
 count.sums.by.sample <- apply(count.df[,3:169], 1, sum)
 
-# Recombine with names
+# Recombine with names for population
 count.sums.by.sample <- cbind(count.df[,1:2], count.sums.by.sample)
-
-# Transform and paste to V/J names
-#new.scaled.counts <- cbind(count.df[,1:2], count.sums.by.sample)
-
-# Create data frame with 260 rows (1 for each VJ combo, and a total count)
-# This will be transformed to a 20 x 13 dataframe with cells as counts
-#new.count <- cbind(count.df[,1:2], sum.of.rows)
-
-# Do the same for the scaled data frame
-#new.scaled.counts <- cbind(count.df[,1:2], sample.sums)
 
 # Function to populate df by matching V and J strings
 populate.vj.df <- function(df.of.counts, vj.df){
@@ -214,39 +235,47 @@ populate.vj.df <- function(df.of.counts, vj.df){
 
 # Call function
 v.j.df <- populate.vj.df(count.sums.by.sample, v.j.df)
-scaled.v.j.df <- populate.vj.df(new.scaled.counts, scaled.v.j.df)
 
-new.scaled.v.j.df <- apply(scaled.v.j.df, c(1,2), function(x) x * 10000)
 
-# Run Chi square
-orig.chi <- chisq.test(v.j.df, correct = F)
-orig.chi
-orig.chi$observed
-orig.chi$expected
 
-scaled.chi <- chisq.test(scaled.v.j.df, correct = F)
+# Now use the 20 x 13 matrix to run a chi-squared
+scaled.chi <- chisq.test(v.j.df, correct = F)
 scaled.chi
+# We get a p-value of 2.2 e -16, which tells us we should reject the null hypothesis that primers are independent, in favor of the alternative that they are dependent.
 scaled.chi$observed
 scaled.chi$expected
 
-scaled.chi.2 <- chisq.test(new.scaled.v.j.df, correct = T)
-scaled.chi
-scaled.chi$observed
-scaled.chi$expected
-
-
+# We can take a look at the residuals to try and determine which ones are causing the dependence
 # Calculate standardized residuals
 scaled.std.resid <- (scaled.chi$observed - scaled.chi$expected) / (sqrt(scaled.chi$expected))
 
 # Calulate adjusted standardized residuals
-orig.adj.std.resid <- (orig.chi$observed - orig.chi$expected) /
-                        sqrt(orig.chi$expected * ((1 - rowSums(orig.chi$observed) /
-                                                        sum(orig.chi$observed))
-                                                     %*% t(1 - colSums(orig.chi$observed) /
-                                                             sum(orig.chi$observed))))
+adj.std.resid <- round(((scaled.chi$observed - scaled.chi$expected) /
+                        sqrt(scaled.chi$expected * ((1 - rowSums(scaled.chi$observed) /
+                                                        sum(scaled.chi$observed))
+                                                     %*% t(1 - colSums(scaled.chi$observed) /
+                                                             sum(scaled.chi$observed))))), 
+                       digits = 1)
+write.csv(adj.std.resid, file = "~/Desktop/chi.sq.resids.csv", quote = F)
 
-# Assess individual contributions
+# Chi squared with log2 data
+# Take the log2 of the counts
+log2.v.j.df <- log2(v.j.df)
 
+# Chi squared
+log2.chi <- chisq.test(log2.v.j.df, correct = F)
+log2.chi
+
+# Calculate standardized residuals
+log2.std.resid <- (log2.chi$observed - log2.chi$expected) / (sqrt(log2.chi$expected))
+
+# Calulate adjusted standardized residuals
+log2.adj.std.resid <- round(((log2.chi$observed - log2.chi$expected) /
+                        sqrt(log2.chi$expected * ((1 - rowSums(log2.chi$observed) /
+                                                        sum(log2.chi$observed))
+                                                     %*% t(1 - colSums(log2.chi$observed) /
+                                                             sum(log2.chi$observed))))), 
+                       digits = 1)
 
 #######
 #######
