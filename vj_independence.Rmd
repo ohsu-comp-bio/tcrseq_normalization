@@ -11,6 +11,21 @@ library(reshape2)
 library(MASS)
 ```
 
+```{r, echo = F}
+# Function to populate df by matching V and J strings
+populate.vj.df <- function(df.of.counts, vj.df){
+  for (i in 1:length(df.of.counts[,3])){
+    v <- as.character(df.of.counts[i,1])
+    j <- as.character(df.of.counts[i,2])
+    sum <- df.of.counts[i,3]
+    rownum <- which(v == row.names(vj.df))
+    colnum <- which(j == colnames(vj.df))
+    vj.df[rownum,colnum] <- sum
+  }  # for
+  return(vj.df)
+}  # populate.vj.df(df.of.counts, vj.df)
+```
+
 ## Summary of Dataset and Purpose
 
 We have approximately 170 samples per sequencing batch, and for each sample we have 260 counts, one for each of the unique combinations of V and J primers. The primers have different amplification rates, which we need to characterize. In order to do this most accurately, we need to determine if the forward (V) primer and the reverse (J) primer act independently to influence spike amplification, or if their interaction is important as well.  
@@ -220,18 +235,6 @@ count.sums.by.sample <- apply(count.df[,3:169], 1, sum)
 # Recombine with names for population
 count.sums.by.sample <- cbind(count.df[,1:2], count.sums.by.sample)
 
-# Function to populate df by matching V and J strings
-populate.vj.df <- function(df.of.counts, vj.df){
-  for (i in 1:length(df.of.counts[,3])){
-    v <- as.character(df.of.counts[i,1])
-    j <- as.character(df.of.counts[i,2])
-    sum <- df.of.counts[i,3]
-    rownum <- which(v == row.names(vj.df))
-    colnum <- which(j == colnames(vj.df))
-    vj.df[rownum,colnum] <- sum
-  }  # for
-  return(vj.df)
-}  # populate.vj.df(df.of.counts, vj.df)
 
 # Call function
 v.j.df <- populate.vj.df(count.sums.by.sample, v.j.df)
