@@ -445,3 +445,64 @@ We can turn off clustering completely as well as alter its parameters. The one p
 #### Export
 
 We can export alignments and assemblies to tab-separated files for manual and programmatic inspection. I need to take a look at the outputs of these files and see how we might be able to leverage them to help solve some of these problems. Can maybe see if alignment is capturing D regions or not, as well as in assembly. More to come.
+
+### New Data
+
+##### New Analysis of equivolume_DNA160107 using read-id capture
+
+```{r, echo = F}
+mixcr.qc <- read.table("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/160107_mixcr_qc_summary.txt", header = T, sep = '\t', stringsAsFactors = F)
+```
+We would expect all aligned reads to have a V, D, and a J region. MiXCR only requires a V and a J hit for alignment, but if our sequencing is correct, we should always have a D region when we have a V and a J region. 
+
+```{r, echo = F}
+pct.no.d <- ggplot(mixcr.qc, aes(x = 1, y = pct.aligned.missing.d)) +
+  geom_boxplot() +
+  scale_x_continuous((breaks=NULL)) +
+  theme(axis.title.x = element_blank()) +
+  ggtitle("160107 Aligned Reads Missing D Region") +
+  ylab("Percent of Total Aligned")
+pct.no.d
+summary(mixcr.qc$pct.aligned.missing.d)
+```
+
+Around 40 percent of our reads are being aligned to reference V and J segments, but do not have a D region hit. The developers list two main regions why a D gene does not get aligned:
+
++ The D gene was too short (fewer than 5 nucleotides) and alignment fails due to low score
+     + Can change absoluteMinScore and relativeMinScore to see if this is the case
++ The D gene was completely "trimmed" during VDJ recombination, apparently a relatively common event.
+     + How common is this? Surely not 40% of reads common, but may account for part of this.
+     
+Another issue that we've been having is many of our aligned reads don't assemble. Out of the aligned reads that have D hits, how many of those failed to assemble?
+
+```{r, echo = F}
+pct.w.d.not.assembled <- ggplot(mixcr.qc, 
+                          aes(x = 1, y = pct.aligned.have.d.not.assembled.of.aligned.w.d)) +
+  geom_boxplot() +
+  scale_x_continuous((breaks=NULL)) +
+  theme(axis.title.x = element_blank()) +
+  ggtitle("160107 Aligned Reads With D Region\nBut Failed to Assemble") +
+  ylab("Percent of Total Aligned with D Hits")
+pct.w.d.not.assembled
+summary(mixcr.qc$pct.aligned.have.d.not.assembled.of.aligned.w.d)
+```
+
+Here we see that around 90% of our reads that align with D regions (meaning they have a V, D, and J alignment), don't assemble! This does not make much sense to me. It also suggests that there is a problem both at the alignment stage - we're not catching D regions in alignment, but also at the assembly stage - we're not assembling the D regions that we do catch.
+
+One final thing to note is that not all of our assembled reads have D hits:
+
+```{r, echo = F}
+pct.assembled.no.d <- ggplot(mixcr.qc, aes(x = 1, y = pct.assembled.missing.d)) +
+  geom_boxplot() +
+  scale_x_continuous((breaks=NULL)) +
+  theme(axis.title.x = element_blank()) +
+  ggtitle("160107 Assembled Reads Missing D Region") +
+  ylab("Percent of Total Assembled")
+pct.assembled.no.d
+summary(mixcr.qc$pct.assembled.missing.d)
+```
+
+While this is a smaller fraction than some of the other distributions, this result is puzzling. The assembly stage extracts CDR3 regions, so how do we extract CDR3 regions from reads that supposedly don't have them?
+
+I think sending some data to the MiXCR people will be very enlightening for us.
+
