@@ -47,48 +47,57 @@ Two different PCR batches comprise our sequencing batch. There may be a differen
 
 Each sample has an individual file containing the 260 counts. These need to be combined into a single data frame prior to the analysis.
 
-```{r cars}
-# Set directory
-count.dir <- "~/Desktop/OHSU/tcr_spike/data/vj_counts/DNA150826/"
+```{r}
+read.data <- function(count.dir){
+  
+  # Read in files and sort by sample number
+  all.counts <- list.files(count.dir)
+  all.counts <- all.counts[order(as.numeric(gsub(".*_S|.assembled.*", '',
+                                                 all.counts)))]
 
-# Read in files and sort by sample number
-all.counts <- list.files(count.dir)
-all.counts <- all.counts[order(as.numeric(gsub(".*_S|.assembled.*", '', all.counts)))]
+  # Read in first file to start aggregate data frame
+  count.df <- read.table(file.path(count.dir, all.counts[1]), sep =',', header = T)
+  count.df <- count.df[,3:5]
 
-# Read in first file to start aggregate data frame
-count.df <- read.table(file.path(count.dir, all.counts[1]), sep =',', header = T)
-count.df <- count.df[,3:5]
+  # Comine spike counts for all files into 1 data frame
+    # Columns are samples
+    # Rows are spikes
+  for (i in 2:length(all.counts)){
+    curr.df <- read.table(file.path(count.dir, all.counts[i]), sep = ',', 
+                          header = T)
+    count.df <- cbind(count.df, curr.df$spike.count)
+  }   #   for i in 2:length(new.counts)
+  colnames(count.df) <- c("V", "J", seq(1:length(all.counts)))
 
-# Comine spike counts for all files into 1 data frame
-  # Columns are samples
-  # Rows are spikes
-for (i in 2:length(all.counts)){
-  curr.df <- read.table(file.path(count.dir, all.counts[i]), sep = ',', header = T)
-  count.df <- cbind(count.df, curr.df$spike.count)
-}   #   for i in 2:length(new.counts)
-colnames(count.df) <- c("V", "J", seq(1:length(all.counts)))
+#head(count.df[,1:10], n = 20)
 
-head(count.df[,1:10], n = 20)
+  # Collapse data frame to 1 count column
+  melt.count.df <- melt(count.df, id.vars = c("V", "J"))
 
-# Collapse data frame to 1 count column
-melt.count.df <- melt(count.df, id.vars = c("V", "J"))
+  # Add pseudo-variable of V/J combos
+  melt.count.df$combos <- paste(melt.count.df$V, melt.count.df$J, sep = '')
 
-# Add pseudo-variable of V/J combos
-melt.count.df$combos <- paste(melt.count.df$V, melt.count.df$J, sep = '')
+  # Take log2 of count values due to geometric distribution
+  log2.melt.count.df <- melt.count.df
+  log2.melt.count.df$value <- log2(melt.count.df$value + 1)
+  
+  # Divide all values by upper quartile as another normalization method
+  norm.melt.count.df <- melt.count.df
+  norm.melt.count.df$value <- norm.melt.count.df$value /
+                            summary(norm.melt.count.df$value)[5]
+  
+  # V is all V segments, repeated for each J for each sample
+  # J is all J segments, repeated same as V
+  # Variable corresponds to sample number
+  # Value is log2 of count
 
-# Take log2 of count values due to geometric distribution
-log2.melt.count.df <- melt.count.df
-log2.melt.count.df$value <- log2(melt.count.df$value + 1)
+  return(list("original" = count.df, "melt" = melt.count.df, 
+              "log2" = log2.melt.count.df, "third.q" = norm.melt.count.df))
+} # read.data(count.df)
 
-
-head(log2.melt.count.df, n = 20)
-# V is all V segments, repeated for each J for each sample
-# J is all J segments, repeated same as V
-# Variable corresponds to sample number
-# Value is log2 of count
+DNA150826 <- read.data("~/Desktop/OHSU/tcr_spike/data/vj_counts/DNA150826/")
+DNA160107 <- read.data("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/counts/")
 ```
-
-
 
 
 ## Linear Regression Model
@@ -96,77 +105,98 @@ head(log2.melt.count.df, n = 20)
 We want to create a linear regression model in order to test the interaction effect between V and J primers on spike counts. First we'll show an additive model, then a multiplicative model.
 
 ```{r}
-# Additive Model
-add.lm <- lm(value ~ V + J, log2.melt.count.df)
-summary(add.lm)
-add.adj.r2 <- round(summary(add.lm)$adj.r.squared, digits = 4)
+make.models <- function(batch){
+  ### Using Log2 Data
+  # Additive
+  log2.add.lm <- lm(value ~ V + J, batch$log2)
+  log2.add.adj.r2 <- round(summary(log2.add.lm)$adj.r.squared, digits = 4)
+  print(paste("Log2 Additive R^2:", log2.add.adj.r2, sep = ' '))
+  # Multiplicative
+  log2.mult.lm <- lm(value ~ V * J, batch$log2)
+  log2.mult.adj.r2 <- round(summary(log2.mult.lm)$adj.r.squared, digits = 4)
+  print(paste("Log2 Multiplicative R^2:", log2.mult.adj.r2, sep = ' '))
 
-# Multiplicative Model
-mult.lm <- lm(value ~ V * J, log2.melt.count.df)
-summary(mult.lm)
-mult.adj.r2 <- round(summary(mult.lm)$adj.r.squared, digits = 4)
-paste("Additive R^2:", add.adj.r2, sep = ' ')
-paste("Multiplicative R^2:", mult.adj.r2, sep = ' ')
+  
+  ### Using Third Quartile data
+  # Additive
+  third.q.add.lm <- lm(value ~ V + J, batch$third.q)
+  third.q.add.adj.r2 <- round(summary(third.q.add.lm)$adj.r.squared, digits = 4)
+  print(paste("Third Quartile Additive R^2:", third.q.add.adj.r2, sep = ' '))
+
+  # Multiplicative
+  third.q.mult.lm <- lm(value ~ V * J, batch$third.q)
+  third.q.mult.adj.r2 <- round(summary(third.q.mult.lm)$adj.r.squared, digits = 4)
+  print(paste("Third Quartile Multiplicative R^2:", third.q.mult.adj.r2, sep = ' '))
+
+  
+  return(list("log2.add" = log2.add.lm, "log2.add.r2" = log2.add.adj.r2,
+         "log2.mult" = log2.mult.lm, "log2.mult.r2" = log2.mult.adj.r2,
+         "third.q.add" = third.q.add.lm, "third.q.add.r2" = third.q.add.adj.r2,
+         "third.q.mult" = third.q.add.lm, "third.q.mult.r2" = third.q.mult.adj.r2))
+} # make.models(batch)
+
+DNA150826.models <- make.models(DNA150826)
+DNA160107.models <- make.models(DNA160107)
 ```
 
 We can see that the multiplicative model explains more variation than the additive. Now we should look at specific V/J pairs to see if there are any specific combinations that are contributing to this increase.
 
 ```{r}
-# Specify Null Model
-null <- lm(value ~ 1, log2.melt.count.df)
-summary(null)
+steps <- function(batch){
+  per.norm.method <- function(batch.method){
+    print(deparse(substitute(batch.method)))
+    # Null
+    null <- lm(value ~ 1, data = batch.method)
+    # Full
+    full <- lm(value ~ ., data = batch.method)
+    
+    # Step forward
+    print("Forward: ")
+    forward <- step(null, scope = list(lower = null, upper = full),
+                    direction = "forward")
+    forward.summ <- summary(forward)
+    print("Backward: ")
+    backward <- step(full, scope = list(lower = null, upper = full),
+                     direction = "backward")
+    backward.summ <- summary(backward)
+    print("Both: ")
+    both <- step(full, scope = list(lower = null, upper = full),
+                 direction = "both")
+    both.summ <- summary(both)
+    
+    return(list("forward" = forward, "for.summary" = forward.summ,
+           "backward" = backward, "back.summary" = backward.summ,
+           "both" = both, "both.summary" = both.summ))
+  } # per.norm.method(batch.method)
+  
+  batch.log2 <- per.norm.method(batch$log2)
+  batch.third.q <- per.norm.method(batch$third.q)
+  
+  return(list("log2" = batch.log2,
+              "third.quartile" = batch.third.q))
+} # steps(batch)
 
-# Specify Full Model
-full <- lm(value ~ V + J + combos, data = log2.melt.count.df)
-summary(full)
-attr(summary(full)$aliased, "names")
-
-# This freezes R - too many combinations I think.
-#full3 <- lm(value ~ V * J * combos, data = log2.melt.count.df)
-#summary(full3)
-
-# Now Attempt step functions
-# Forward
-stepforward <- step(null, scope = list(lower = null, upper = full), direction = "forward")
-# Not sure why this only goes through:
-# value ~ 1
-# and
-# value ~ combos
-
-summary(stepforward)
-# says call is value ~ comos
-
-# Backward
-stepbackward <- step(full, scope = list(lower =  null, upper = full), direction = "backward")
-# AIC is the same for all of these...
-summary(stepbackward)
-# Says call is same as forward
-
-# Both
-stepboth <- step(full, scope = list(lower = null, upper = full), direction = "both")
-# Only goes one direction
-summary(stepboth)
-# Same call as forward and backward
-
+DNA150826.steps <- steps(DNA150826)
+DNA160107.steps <- steps(DNA160107)
 ```
 
 Here is a different step function attempt:
 ```{r}
 # Need to rearrange the data frame
 # First transform, then create new column with rowsums
-primer.names <- paste(count.df$V, count.df$J, sep = '')
+#primer.names <- paste(count.df$V, count.df$J, sep = '')
 
-new.count <- cbind(primer.names,
-                   count.df[,3:169], stringsAsFactors = F)
-new.count <- as.data.frame(t(new.count), stringsAsFactors = F)
-new.count <- new.count[c(2:168),]
-new.count <- apply(new.count, c(1,2), function(x) as.numeric(x))
-count.total <- apply(new.count, 1, sum)
-colnames(new.count) <- primer.names
-new.count <- cbind("total" = count.total, new.count)
-new.count <- data.frame(new.count)
+#new.count <- cbind(primer.names,
+#                   count.df[,3:169], stringsAsFactors = F)
+#new.count <- as.data.frame(t(new.count), stringsAsFactors = F)
+#new.count <- new.count[c(2:168),]
+#new.count <- apply(new.count, c(1,2), function(x) as.numeric(x))
+#count.total <- apply(new.count, 1, sum)
+#colnames(new.count) <- primer.names
+#new.count <- cbind("total" = count.total, new.count)
+#new.count <- data.frame(new.count)
 
-test.lm <- lm(total ~ ., new.count)
+#test.lm <- lm(total ~ ., new.count)
 
 # This doesn't work either...
 ```
@@ -177,8 +207,8 @@ Also going to do a chi squared test. Need to format the data so that we have V's
 ```{r}
 # Need to create a 20 x 13 matrix of V and J counts for chi-squared test
 # This empty matrix will be populated by counts
-vs <- unique(count.df$V)
-js <- unique(count.df$J)
+vs <- unique(DNA150826$original$V)
+js <- unique(DNA150826$original$J)
 v.j.df <- data.frame(matrix(nrow = length(vs), ncol = length(js)))
 rownames(v.j.df) <- vs
 colnames(v.j.df) <- js
@@ -186,15 +216,15 @@ colnames(v.j.df) <- js
 # We have two options for running the chi-squared. We can sum the counts of all of the samples and do one chi-squared, or we can do 170 chi-squareds, one for each sample.
 
 # Variance and standard deviation of each of the 260 spikes
-spike.var <- apply(subset.count, 1, var)
-spike.sd <- apply(subset.count, 1, sd)
+#spike.var <- apply(subset.count, 1, var)
+#spike.sd <- apply(subset.count, 1, sd)
 
 # This is for the second option - 170 individual chi-squared tests:
 # Run Chi-squared on each individually and extract p value
 chi.sq.ps <- NULL
 log.chi.sq.ps <- NULL
-for (i in 3:length(names(count.df))){
-  curr.df <- count.df[,c(1:2,i)]
+for (i in 3:length(names(DNA150826$original))){
+  curr.df <- DNA150826$original[,c(1:2,i)]
   curr.vj <- populate.vj.df(curr.df, v.j.df)
   log.curr.vj <- log2(curr.vj + 1)
   curr.chi <- chisq.test(curr.vj, correct = F)
@@ -211,7 +241,7 @@ for (i in 3:length(names(count.df))){
 # We want to scale the counts within samples due to the high variation between samples.
 # Extract counts only
 # Rows are spikes, columns are samples
-subset.count <- count.df[,3:169]
+subset.count <- DNA150826$original[,3:169]
 
 
 # Extract column totals - this is a sum of all 260 spike counts for a given sample
@@ -222,7 +252,7 @@ sum.of.samples <- apply(subset.count, 2, sum)
 scaled.counts <- apply(subset.count, 1, function(x) x / sum.of.samples)
 # Rows are now samples and columns are spikes...
 rownames(scaled.counts) <- seq(1:167)
-colnames(scaled.counts) <- paste(count.df$V, count.df$J, sep = '')
+colnames(scaled.counts) <- paste(DNA150826$original$V, DNA150826$original$J, sep = '')
 
 # Variance and Standard Deviation of scaled counts
 scaled.spike.var <- apply(scaled.counts, 2, var)
@@ -230,10 +260,10 @@ scaled.spike.sd <- apply(scaled.counts, 2, sd)
 
 # Now that we've scaled each of the counts, we want to sum each row so that we get a total count for each of the 260 spikes, from all 170 samples. Remember, we need 260 values to populate our 20x13 chi-squared matrix.
 # Sum each row
-count.sums.by.sample <- apply(count.df[,3:169], 1, sum)
+count.sums.by.sample <- apply(DNA150826$original[,3:169], 1, sum)
 
 # Recombine with names for population
-count.sums.by.sample <- cbind(count.df[,1:2], count.sums.by.sample)
+count.sums.by.sample <- cbind(DNA150826$original[,1:2], count.sums.by.sample)
 
 
 # Call function
@@ -284,17 +314,17 @@ log2.adj.std.resid <- round(((log2.chi$observed - log2.chi$expected) /
 #######
 ####### Old Stuff
 # Sum rows - this is a sum of counts across all samples, 1 for each spike
-sum.of.rows <- apply(subset.count, 1, sum)
+#sum.of.rows <- apply(subset.count, 1, sum)
 
 # Take mean of each spike count across the samples
-count.mean <- sum.of.rows / length(names(subset.count))
+#count.mean <- sum.of.rows / length(names(subset.count))
 
 # Create scaling factor by dividing count mean by 1
-scaling.factor <- 1 / count.mean
+#scaling.factor <- 1 / count.mean
 
 # Multiply each column (sample) by scaling factor
 # This should cause each row to be multiplied by the same scaling factor
-scaled.counts <- apply(subset.count, 2, function(x) (x * scaling.factor))
+#scaled.counts <- apply(subset.count, 2, function(x) (x * scaling.factor))
 
 # Sum scaled counts
-sum.scaled.rows <- apply(scaled.counts, 1, sum)
+#sum.scaled.rows <- apply(scaled.counts, 1, sum)
