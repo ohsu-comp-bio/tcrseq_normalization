@@ -15,7 +15,7 @@ source("http://peterhaschke.com/Code/multiplot.R")
 
 ## Objective
 
-We need to determine if we can use MiXCR clonotype count outputs as a proxy for depth of coverage. To do so, we need to figure out how reads are aligned and assembled. Are they grouped together too often, what is the reasoning behind the grouping, what happens if we change certain parameters, etc.  
+We need to determine if we can use MiXCR clonotype count outputs as a proxy for depth of coverage. To do so, we need to figure out how reads are aligned and assembled. Are they grouped together too often for our purposes, what is the reasoning behind the grouping, what happens if we change certain parameters, etc.  
 
 ## MiXCR Summary
 
@@ -31,13 +31,13 @@ align1 <- cbind(sample, version, align1)
 # second is using mixcr 1.7.1
 align2 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/new.mixcr.alignment.QC.summary.txt", sep = ",", header = T)
 sample <- as.numeric(gsub(".*S|.assembled.*", '', align2$inputs))
-version <- rep("1.7", length(align2$analysis.date))
+version <- rep("1.7.1", length(align2$analysis.date))
 align2 <- cbind(sample, version, align2)
 
 # third is using mixcr 1.7.1 and paired end reads
 align3 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/unPEAR.mixcr.alignment.QC.summary.txt", sep = ",", header = T)
 sample <- as.numeric(gsub(".*S|_R.*", '', align3$inputs))
-version <- rep("unPEAR_1.7", length(align3$analysis.date))
+version <- rep("unPEAR_1.7.1", length(align3$analysis.date))
 align3 <- cbind(sample, version, align3)
 
 # Version 4 - equimolar 1.6
@@ -59,13 +59,13 @@ assemble1 <- cbind(sample, version, assemble1)
 # 1.7.1
 assemble2 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/new.mixcr.assemble.QC.summary.txt", sep = ",", header = T)
 sample <- as.numeric(gsub(".*S|_align.*", '', assemble2$inputs))
-version <- rep("1.7", length(assemble2$analysis.date))
+version <- rep("1.7.1", length(assemble2$analysis.date))
 assemble2 <- cbind(sample, version, assemble2)
 
 # 1.7.1 and paired end reads
 assemble3 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/new.mixcr.assemble.QC.summary.txt", sep = ",", header = T)
 sample <- as.numeric(gsub(".*S|_align.*", '', assemble3$inputs))
-version <- rep("unPEAR_1.7", length(assemble3$analysis.date))
+version <- rep("unPEAR_1.7.1", length(assemble3$analysis.date))
 assemble3 <- cbind(sample, version, assemble3)
 
 # 4 - equimolar 1.6
@@ -112,11 +112,11 @@ pct.align <- ggplot(align, aes(x = factor(version), y = aligned.pct, group = ver
   geom_boxplot(aes(fill = version)) #+
   #scale_x_continuous(breaks=NULL) +
   #theme(axis.title.x = element_blank())
-pct.align + ylab("Percent Aligned of Total") + ggtitle("160107 Align\nSuccessfully Aligned Reads") +
+pct.align + ylab("Percent Aligned of Total") + ggtitle("Fig. 1 160107 Align\nSuccessfully Aligned Reads") +
   xlab("MiXCR Version")
 ```
 
-The first three use the equivolume sequencing run. 1.6 refers to mixcr version 1.6, 1.7 is version 1.7.1, unPEAR\_1.7 uses unmerged paired-end reads and version 1.7, and equimol_1.6 is equimolar sequencing run using version 1.6
+The first three use the equivolume sequencing run. 1.6 refers to mixcr version 1.6, 1.7.1 is version 1.7.1, unPEAR\_1.7.1 uses unmerged paired-end reads and version 1.7.1, and equimol_1.6 is equimolar sequencing run using version 1.6. (Equimolar refers to sample prep during Illumina sequencing. Samples are normalized by concentration, rather than taking an equal volume of each sample, regardless of concentration. We use equivolume to preserve biological differences in T-cell concentration between samples.)
 
 Version 1.6:
 ```{r, echo = F}
@@ -124,11 +124,11 @@ summary(align[align$version == "1.6", 9])
 ```
 Version 1.7.1
 ```{r, echo = F}
-summary(align[align$version == "1.7", 9])
+summary(align[align$version == "1.7.1", 9])
 ```
 Unassembled reads, version 1.7.1
 ```{r, echo = F}
-summary(align[align$version == "unPEAR_1.7", 9])
+summary(align[align$version == "unPEAR_1.7.1", 9])
 ```
 Equimolar sequencing, version 1.6
 ```{r, echo = F}
@@ -145,7 +145,7 @@ pct.low.score <- ggplot(align, aes(x = version, y = failed.alignment.low.score,
   theme(axis.title.x = element_blank()) +
   ylab("Percent Not Aligned of Total") + 
   xlab("MiXCR Version") +
-  ggtitle("160107 Align\nFailed Alignment Due to Low Score")
+  ggtitle("Fig. 2 160107 Align\nFailed Alignment Due to Low Score")
 
 failed.j <- ggplot(align, aes(x = version, y = failed.alignment.j.hits,
                               group = version)) +
@@ -199,14 +199,14 @@ summary(align[align$version == "equimol_1.6", 12])
 
 Looks like most reads are not aligning due to a lack of J hit. This is a little concerning. In theory, all reads assembled by PEAR should have both V and J regions. This is because we use a V primer as our forward primer and a J as our reverse. After PEAR assembly, they should be on either end of the same read.
 
-Does this mean we have off-target amplification? Are V primers binding where we should have J binding? Is PEAR mis-assembling our reads?
+Does this mean we have off-target amplification? Are V primers binding where we should have J binding? Is PEAR mis-assembling our reads? 
 
 Should we relax the parameters for calling a hit? 
 
 ##### Moving Forward
 1. Perform primer specificity experiment - amplify synthetic templates with 1 V primer and all J primers, repeating for each V primer. Repeat process with 1 J primer and all V primers.
      + See figure 3 of Carlson et al. 2013 - "Using synthetic templates to design an unbiased multiplex PCR assay"
-     + 
+
 
 2. Extract all unaligned reads, and re-run them through MiXCR align using relaxed parameters.
      + use -a to save the description line from fastq file. 
@@ -275,7 +275,7 @@ pct.assemble <- ggplot(assemble, aes(x = version, y = pct.total.reads.used,
   #theme(axis.title.x = element_blank()) + 
   ylab("Percent Reads Used of Total") +
   xlab("MiXCR Version") +
-  ggtitle("160107 Assemble\nAssembled Reads")
+  ggtitle("Fig. 3 160107 Assemble\nAssembled Reads")
 
 pct.core <- ggplot(assemble, aes(x = version, y = pct.reads.used.as.core, group = version)) +
   geom_boxplot(aes(fill = version)) +
@@ -283,14 +283,14 @@ pct.core <- ggplot(assemble, aes(x = version, y = pct.reads.used.as.core, group 
   #theme(axis.title.x = element_blank()) + 
   ylab("Reads Used for Core (Percent of Reads Used)") + 
   xlab("MiXCR Version") +
-  ggtitle("160107 Assemble\nAssembled Reads Used as Core Clones")
+  ggtitle("Fig. 4 160107 Assemble\nAssembled Reads Used as Core Clones")
 
 pct.mapped <- ggplot(assemble, aes(x = version, y = pct.reads.used.mapped.low.quality,
                                    group = version)) +
   geom_boxplot(aes(fill = version)) +
   ylab("Reads Successfully Mapped (Percent of Used)") +
   xlab("MiXCR Version") +
-  ggtitle("160107 Assemble\nLow Quality Reads Mapped to Core Clones")
+  ggtitle("Fig. 5 160107 Assemble\nLow Quality Reads Mapped to Core Clones")
 
 pct.failed.mapped <- ggplot(assemble, aes(x = version, y = pct.reads.dropped.failed.mapping,
                                           group = version)) +
@@ -307,7 +307,7 @@ pct.no.clonotype <- ggplot(assemble, aes(x = version,
   #theme(axis.title.x = element_blank()) + 
   ylab("Percent Dropped of Total") + 
   xlab("MiXCR Version") +
-  ggtitle("160107 Assemble\nReads Dropped Due to No Clonal Sequence")
+  ggtitle("Fig. 6 160107 Assemble\nReads Dropped Due to No Clonal Sequence")
 
 clon.elim.error <- ggplot(assemble, aes(x = pct.lost.to.pcr.corr)) +
   geom_histogram(aes(fill = version)) +
@@ -316,7 +316,7 @@ clon.elim.error <- ggplot(assemble, aes(x = pct.lost.to.pcr.corr)) +
   #theme(axis.title.x = element_blank()) + 
   #ylab("Percent") + 
   xlab("Percent lost to PCR Error Correction") + 
-  ggtitle("160107 Assemble\nClonotypes eliminated by PCR Error Correction")
+  ggtitle("Fig. 7 160107 Assemble\nClonotypes eliminated by PCR Error Correction")
 
 pct.assemble
 ```
@@ -403,7 +403,7 @@ Equimolar sequencing, version 1.6:
 ```{r, echo = F}
 summary(assemble[assemble$version == "equimol_1.6", 14])
 ```
-These results are puzzling. If around 80% of our reads are aligning to V and J regions, one would assume that they would also contain a CDR3 region to be extracted. According to one of the developers, assembly is just clustering records into clonotypes and all "markup" is done at the alignment step. That still doesn't fit with our high alignment percentages and low assembly percentages though.  
+These results are puzzling. If around 80% of our reads are aligning to V and J regions, one would assume that they would also contain a CDR3 region to be extracted. According to one of the developers, assembly is just clustering records into clonotypes and all "markup" is done at the alignment step. That still doesn't fit with our high alignment percentages and low assembly percentages though. Are we certain our sample preparation is correct?  
 
 ##### Moving Forward
 
@@ -460,7 +460,7 @@ pct.no.d <- ggplot(mixcr.qc, aes(x = 1, y = pct.aligned.missing.d)) +
   geom_boxplot() +
   scale_x_continuous((breaks=NULL)) +
   theme(axis.title.x = element_blank()) +
-  ggtitle("160107 Aligned Reads Missing D Region") +
+  ggtitle("Fig. 8 160107 Aligned Reads Missing D Region") +
   ylab("Percent of Total Aligned")
 pct.no.d
 summary(mixcr.qc$pct.aligned.missing.d)
@@ -481,7 +481,7 @@ pct.w.d.not.assembled <- ggplot(mixcr.qc,
   geom_boxplot() +
   scale_x_continuous((breaks=NULL)) +
   theme(axis.title.x = element_blank()) +
-  ggtitle("160107 Aligned Reads With D Region\nBut Failed to Assemble") +
+  ggtitle("Fig. 9 160107 Aligned Reads With D Region\nBut Failed to Assemble") +
   ylab("Percent of Total Aligned with D Hits")
 pct.w.d.not.assembled
 summary(mixcr.qc$pct.aligned.have.d.not.assembled.of.aligned.w.d)
@@ -496,7 +496,7 @@ pct.assembled.no.d <- ggplot(mixcr.qc, aes(x = 1, y = pct.assembled.missing.d)) 
   geom_boxplot() +
   scale_x_continuous((breaks=NULL)) +
   theme(axis.title.x = element_blank()) +
-  ggtitle("160107 Assembled Reads Missing D Region") +
+  ggtitle("Fig. 10 160107 Assembled Reads Missing D Region") +
   ylab("Percent of Total Assembled")
 pct.assembled.no.d
 summary(mixcr.qc$pct.assembled.missing.d)
