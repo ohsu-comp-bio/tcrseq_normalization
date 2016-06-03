@@ -1,0 +1,182 @@
+---
+title: "MiXCR_batch_compare"
+author: "Wes Horton"
+date: "June 1, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(grid)
+source("http://peterhaschke.com/Code/multiplot.R")
+```
+
+## Objective
+
+We're having issues with out MiXCR output. Different runs of the 160107 batch were compared in the MiXCR\_QC\_analysis.Rmd, but this will compare the different batches, all run using the same parameters.
+
+```{r, echo = FALSE}
+# Read in align and assemble QC files
+
+### Align ###
+
+# 150624
+align.150624 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA150624LC/QC/mixcr.alignment.QC.summary.txt", sep = ',', header = T)
+sample <- as.numeric(gsub(".*S|.assembled.*", '', align.150624$inputs))
+batch <- rep("150624", length(align.150624$analysis.date))
+align.150624 <- cbind(sample, batch, align.150624)
+
+# 150826
+align.150826 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA150826LC/QC/mixcr.alignment.QC.summary.txt", sep = ',', header = T)
+sample <- as.numeric(gsub(".*S|.assembled.*", '', align.150826$inputs))
+batch <- rep("150826", length(align.150826$analysis.date))
+align.150826 <- cbind(sample, batch, align.150826)
+align.150826 <- align.150826[!(align.150826$sample == "141"),]
+
+# 151124
+align.151124 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA151124LC/QC/mixcr.alignment.QC.summary.txt", sep = ',', header = T)
+sample <- as.numeric(gsub(".*S|.assembled.*", '', align.151124$inputs))
+batch <- rep("151124", length(align.151124$analysis.date))
+align.151124 <- cbind(sample, batch, align.151124)
+align.151124 <- align.151124[!(align.151124$sample == "142"),]
+
+# 160107
+align.160107 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/mixcr.alignment.QC.summary.txt", sep = ',', header = T)
+sample <- as.numeric(gsub(".*S|.assembled.*", '', align.160107$inputs))
+batch <- rep("160107", length(align.160107$analysis.date))
+align.160107 <- cbind(sample, batch, align.160107)
+align.160107 <- align.160107[!(align.160107$sample == "142"),]
+
+# Combine together
+align <- rbind(align.150624, align.150826, align.151124, align.160107)
+
+### Assemble ###
+# 150624
+assemble.150624 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA150624LC/QC/mixcr.assemble.QC.summary.txt", sep = ',', header = T)
+sample <- as.numeric(gsub(".*S|_align.*", '', assemble.150624$inputs))
+batch <- rep("150624", length(assemble.150624$analysis.date))
+assemble.150624 <- cbind(sample, batch, assemble.150624)
+
+# 150826
+assemble.150826 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA150826LC/QC/mixcr.assemble.QC.summary.txt", sep = ',', header = T)
+sample <- as.numeric(gsub(".*S|_align.*", '', assemble.150826$inputs))
+batch <- rep("150826", length(assemble.150826$analysis.date))
+assemble.150826 <- cbind(sample, batch, assemble.150826)
+assemble.150826 <- assemble.150826[!(assemble.150826$sample == "141"),]
+
+# 151124
+assemble.151124 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA151124LC/QC/mixcr.assemble.QC.summary.txt", sep = ',', header = T)
+sample <- as.numeric(gsub(".*S|_align.*", '', assemble.151124$inputs))
+batch <- rep("151124", length(assemble.151124$analysis.date))
+assemble.151124 <- cbind(sample, batch, assemble.151124)
+assemble.151124 <- assemble.151124[!(assemble.151124$sample == "142"),]
+
+# 160107
+assemble.160107 <- read.delim("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/QC/mixcr.assemble.QC.summary.txt", sep = ',', header = T)
+sample <- as.numeric(gsub(".*S|_align.*", '', assemble.160107$inputs))
+batch <- rep("160107", length(assemble.160107$analysis.date))
+assemble.160107 <- cbind(sample, batch, assemble.160107)
+assemble.160107 <- assemble.160107[!(assemble.160107$sample == "142"),]
+
+# Combine together
+assemble <- rbind(assemble.150624, assemble.150826, assemble.151124, assemble.160107)
+
+# Calculate percent of clonotypes eliminated by PCR Error Correction
+assemble$total.pot.clones <- assemble$clonotype.count + assemble$clonotypes.elim.error.corr
+assemble$pct.lost.to.pcr.corr <- assemble$clonotypes.elim.error.corr / assemble$total.pot.clones * 100
+```
+
+### Results
+
+We've generally had pretty good alignment (based on observations from the 160107 batch), with most failed alignments due to bad J reads. Let's see how this looks for all of the batches:
+
+```{r, echo = FALSE}
+pct.align <- ggplot(align, aes(x = batch, y = aligned.pct, group = batch)) +
+  geom_boxplot(aes(fill = batch)) +
+  ylab("Percent Aligned of Total") +
+  xlab("Batch ID") +
+  ggtitle("Fig. 1 Successfully Aligned Reads")
+
+pct.align
+```
+
+Alignment percentages are relatively consistent. Turns out the 160107 batch was the worst of them. Let's look at the reasons for failure:
+
+```{r, echo = FALSE}
+pct.low.score <- ggplot(align, aes(x = batch, y = failed.alignment.low.score,
+                                   group = batch)) +
+  geom_boxplot(aes(fill = batch)) +
+  ylab("Percent Not Aligned of Total") +
+  xlab("Batch ID") +
+  ggtitle("Fig. 2 Failed Alignments Due to Low Score")
+
+failed.j <- ggplot(align, aes(x = batch, y = failed.alignment.j.hits,
+                              group = batch)) +
+  geom_boxplot(aes(fill = batch)) +
+  ylab("Percent Not Aligned of Total") +
+  xlab("Batch ID") +
+  ggtitle("Fig. 3 Failed Alignments Due to Absence of J Hit")
+
+pct.low.score
+
+failed.j
+```
+
+Everything looks pretty standard between the different batches. Let's look at the assembly statistics:
+
+```{r, echo = F}
+pct.assemble <- ggplot(assemble, aes(x = batch, y = pct.total.reads.used, 
+                                     group = batch)) +
+  geom_boxplot(aes(fill = batch)) +
+  ylab("Percent Reads Used of Total") +
+  xlab("Batch ID") +
+  ggtitle("Fig. 4 Percent Assembled Reads")
+
+pct.core <- ggplot(assemble, aes(x = batch, y = pct.reads.used.as.core, group = batch)) +
+  geom_boxplot(aes(fill = batch)) +
+  ylab("Reads Used for Core (Percent of Reads Used)") + 
+  xlab("Batch ID") +
+  ggtitle("Fig. 5 Assembled Reads Used as Core Clones")
+
+pct.mapped <- ggplot(assemble, aes(x = batch, y = pct.reads.used.mapped.low.quality,
+                                   group = batch)) +
+  geom_boxplot(aes(fill = batch)) +
+  ylab("Reads Successfully Mapped (Percent of Used)") +
+  xlab("Batch ID") +
+  ggtitle("Fig. 6 Low Quality Reads Mapped to Core Clones")
+
+pct.failed.mapped <- ggplot(assemble, aes(x = batch, y = pct.reads.dropped.failed.mapping,
+                                          group = batch)) +
+  geom_boxplot(aes(fill = batch)) +
+  ylab("Reads Not Mapped (Percent of Used)") +
+  xlab("Batch ID") +
+  ggtitle("Fig. 7 Low Quality Reads Failing to Map")
+
+pct.no.clonotype <- ggplot(assemble, aes(x = batch, 
+                                         y = pct.reads.dropped.no.clonal.sequence,
+                                         group = batch)) +
+  geom_boxplot(aes(fill = batch)) +
+  ylab("Percent Dropped of Total") + 
+  xlab("Batch ID") +
+  ggtitle("Fig. 8 Reads Dropped Due to No Clonal Sequence")
+
+clone.elim.error <- ggplot(assemble, aes(x = pct.lost.to.pcr.corr)) +
+  geom_histogram(aes(fill = batch)) +
+  facet_grid(batch ~ .) +
+  xlab("Percent lost to PCR Error Correction") + 
+  ggtitle("Fig. 9 Clonotypes eliminated by PCR Error Correction")
+
+pct.assemble
+
+pct.core
+
+pct.mapped
+
+pct.failed.mapped
+
+pct.no.clonotype
+
+clone.elim.error
+```

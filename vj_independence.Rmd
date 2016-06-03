@@ -2,7 +2,7 @@
 title: "Independence of V and J Primers"
 author: "Wes Horton, Burcu Gurun-Demir"
 date: "May 4, 2016"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
