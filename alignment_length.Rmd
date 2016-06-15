@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(ggplot2)
 library(grid)
+library(reshape2)
 source("http://peterhaschke.com/Code/multiplot.R")
 ```
 
@@ -24,12 +25,9 @@ extract.ind <- function(x) {
 } # extract.V
 
 ##  Arguments
-arguments <- commandArgs(trailingOnly = T)
-align.file <- arguments[1]
-output.dir <- arguments[2]
-##  for testing
-##  align.file <- "/Volumes/exa_data/equivol_DNA151124LC/mixcr/export_align/DNA151124LC_1_S1_alignment_exported.txt"
 align.file <- "~/Desktop/OHSU/tcr_spike/data/equiv_DNA151124LC/export_align/DNA151124LC_1_S1_alignment_exported.txt"
+summary.file <- "~/Desktop/OHSU/tcr_spike/data/equiv_DNA151124LC/align_length_qc/DNA151124LC_aggregate.align.length.qc.txt"
+clone.summary.file <- "~/Desktop/OHSU/tcr_spike/data/equiv_DNA151124LC/align_length_qc/DNA151124LC_aggregate.clone.align.length.qc.txt"
 
 ##  Metadata - Extract sample ID and batch
 file.name <- unlist(strsplit(align.file, split = "/"))
@@ -41,9 +39,11 @@ rm(file.name)
 
 #### Overview
 
-Based off of the pretty alignments that we have looked at in depth, we believe that a significant proportion of our alignments may be incorrect. This is because we observe multiple times that only 20-25 nucleotides of the V or J sequence aligns to reference, where we would expect many more. When we run the intervening sequence through BLAT, it often aligns to random genes elsewhere in the genome. This is evidence of off-target amplification by our primers.  
+Based off of the pretty alignments that we have looked at in depth, we believe that a significant proportion of our alignments may be incorrect. One reason for this suspicion is that we observe multiple times that only 20-25 nucleotides of the V or J sequence aligns to reference, where we would expect many more. When we run the intervening sequence through BLAT, it often aligns to random genes elsewhere in the genome. This is evidence of off-target amplification by our primers.  
 
-We hope that some of this may be eliminated by our new PCR conditions, but most likely we will still observe this problem. Another possible way to avoid these sequences in our final analysis is to excise them from our gel prior to sequencing. This would require a significant difference in overall sequence length so that distinct bands will form in the gel. According to DM, a range of 170-240 nucleotides is expected for a proper VDJ sequence and alignment. If we observe alignments that are shorter or longer than this range, they are likely to be the result of off-target amplification by our primers.  
+We hope that some of this may be eliminated by our new PCR conditions, but most likely we will still observe this problem to some degree, due to the nature of PCR. Another possible way to avoid these sequences in our final analysis is to excise them from our gel prior to sequencing. This would require a significant difference in overall sequence length so that distinct bands will form in the gel. According to DM, a range of 170-240 nucleotides is expected for a proper VDJ sequence and alignment. If we observe alignments that are shorter or longer than this range, they are likely to be the result of off-target amplification by our primers.  
+
+In addition to determining whether or not we can use size-selection in our library prep, we are also interested in characterizing the frequency at which off-target amplification occurs. Finally, we can subset our alignment files to only include alignments that later assemble to clones. It will be informative to look at the frequency of off-target amplification in those alignments as well, to determine if MiXCR is working correctly.
 
 There is still the possibility of true alignments existing outside of that range and false alignments within. We can use the alignment length of just the V region as another requirement for "true alignments". We expect false alignments to only align to the primer sequence (22-25 basepairs) and no more. Any sequence who's V alignment is shorter than 30 base pairs is likely to be a false alignment.
 
@@ -51,11 +51,13 @@ There is still the possibility of true alignments existing outside of that range
 
 Alignment length is defined as the first nucleotide of the V alignment to the last nucleotide of the J alignment produced by MiXCR. These values exist in the pretty alignment files, but also in the tab-separated files created by exportAlignments. V alignments are in Best.V.Alignment and J's are in Best.J.Alignment. There are many values in these columns, separated by "|" characters. The beginning of the V alignment is the 4th field in that column and the end of the J alignment is the 5th field in its column. The difference between the two is the alignment length.
 
-1. False alignments have total alignment lengths that are shorter than 170 nucleotides and longer than 240 nucleotides.
+1. False alignments have total alignment lengths that are shorter than 170 nucleotides or longer than 240 nucleotides.
 
 2. False alignments have V alignments that are shorter than 30 nucleotides.
 
 #### Example
+
+This is a look into one alignment, specifically sample 1 from the equivolume run of DNA151124.
 
 ```{r, echo = F}
 ###
@@ -64,13 +66,14 @@ Alignment length is defined as the first nucleotide of the V alignment to the la
 
 ##  Initialize empty output dataframe
 summary.df <- NULL
+clone.summary.df <- NULL
 
 ##  Read in data
 align.data <- read.table(align.file, sep = '\t', header = T,
                         na.strings = c('', ' '), stringsAsFactors = F)
 
 ## For testing: subset data
-align.data <- align.data[1:100,]
+align.data <- align.data[1:10000,]
 
 ##  Extract V alignment
 V.lengths <- t(apply(align.data["Best.V.alignment"], 1, function(x) extract.ind(x)))
@@ -90,11 +93,16 @@ align.lengths$tot.length <- align.lengths$J.end - align.lengths$V.start
 ##  Combine to original data
 align.data <- cbind(align.data, align.lengths)
 
+##  Subset to include only assembled alignments
+clone.data <- align.data[complete.cases(align.data$Clone.Id),]
+
 ##  Calculate total alignments (for QC later)
 total.alignments <- length(align.data[,1])
+total.align.clones <- length(clone.data[,1])
 
 ## Begin summary data.frame
 summary.df$total.alignments <- total.alignments
+clone.summary.df$total.alignments <- total.align.clones
 
 ###
 ### Clean up environment
@@ -104,22 +112,37 @@ rm(V.lengths, J.lengths, align.lengths)
 
 First we want to apply our first criterion: false alignments are likely to be outside the range of 170-240 nucleotides
 
-```{r}
+```{r, echo = F}
+###
+### BAD
+###
 ##  If total alignment length is outside of this range, it is a potentially off-target alignment
 align.outside.range <- align.data[align.data$tot.length < 170 | align.data$tot.length > 240, ]
+clone.outside.range <- clone.data[clone.data$tot.length < 170 | clone.data$tot.length > 240, ]
 ##  Rename
 off.target.1 <- align.outside.range
 rm(align.outside.range)
+clone.off.target.1 <- clone.outside.range
+rm(clone.outside.range)
 ##  What percentage of alignments are considered bad at this point?
 percent.bad.1 <- round(length(off.target.1[,1]) / total.alignments * 100, digits = 1)
+clone.percent.bad.1 <- round(length(clone.off.target.1[,1]) / total.align.clones * 100, digits = 1)
 
+###
+### GOOD
+###
 ##  If total alignment length is within this range, it is a potentially correct alignment
 align.in.range <- align.data[align.data$tot.length >= 170 & align.data$tot.length <= 240,]
+clone.in.range <- clone.data[clone.data$tot.length >= 170 & clone.data$tot.length <= 240,]
 ##  Rename
 correct.1 <- align.in.range
 rm(align.in.range)
+clone.correct.1 <- clone.in.range
+rm(clone.in.range)
 ##  What percentage of alignments are considered good at this point?
 percent.good.1 <- round(length(correct.1[,1]) / total.alignments * 100, digits = 1)
+clone.percent.good.1 <- round(length(clone.correct.1[,1]) / total.align.clones * 100, digits = 1)
+
 
 ##  At this point, we have the most general division between "good" and "bad" alignments. 
 ##  Theoretically though, there are most likely false positives as well as false negatives. 
@@ -128,28 +151,208 @@ percent.good.1 <- round(length(correct.1[,1]) / total.alignments * 100, digits =
 ## Add to summary
 summary.df$percent.outside.of.range <- percent.bad.1
 summary.df$percent.in.range <- percent.good.1
+clone.summary.df$percent.outside.of.range <- clone.percent.bad.1
+clone.summary.df$percent.in.range <- clone.percent.good.1
+
+# Extract data for plotting
+correct.align.1 <- cbind("type" = rep("align.correct.1", times = length(correct.1$V.length)), 
+                         "V.length" = correct.1$V.length, "J.length" = correct.1$J.length, 
+                         "Total.length" = correct.1$tot.length)
+correct.clones.1 <- cbind("type" = rep("clone.correct.1", times = length(clone.correct.1$V.length)), 
+                          "V.length" = clone.correct.1$V.length, "J.length" = clone.correct.1$J.length, 
+                          "Total.length" = clone.correct.1$tot.length)
+bad.align.1 <- cbind("type" = rep("align.bad.1", times = length(off.target.1$V.length)), 
+                   "V.length" = off.target.1$V.length, "J.length" = off.target.1$J.length, 
+                   "Total.length" = off.target.1$tot.length)
+bad.clones.1 <- cbind("type" = rep("clone.bad.1", times = length(clone.off.target.1$V.length)), 
+                    "V.length" = clone.off.target.1$V.length, "J.length" = clone.off.target.1$J.length, 
+                    "Total.length" = clone.off.target.1$tot.length)
+
+# Melt for plotting
+first.stage.summary <- as.data.frame(rbind(correct.align.1, correct.clones.1, bad.align.1, bad.clones.1), stringsAsFactors = F)
+first.stage.summary <- melt(first.stage.summary, id.vars = "type")
+first.stage.summary$value <- as.numeric(first.stage.summary$value)
+rm(correct.align.1, correct.clones.1, bad.align.1, bad.clones.1)
 
 
+# Plot
+gg.first.stage <- ggplot(first.stage.summary, aes(x = variable, y = value, group = variable)) +
+  geom_boxplot(aes(fill = variable)) +
+  ggtitle("Equiv_151124 S1 Alignment Lengths\nRange Cut-Off") +
+  ylab("Alignment Length") +
+  theme(axis.title.x=element_blank()) +
+  labs(fill = "Alignment") +
+  scale_y_continuous(breaks=c(0, 30, 100, 170, 240, 300))
+
+gg.first.stage + facet_wrap( ~ type, nrow = 2)
 ```
 
-At this point, we have flagged `r percent.bad.1`% of our reads as "bad", or "off-target", and `r percent.good.1`% of our reads as "good". Let's add our second criterion: false alignments are likely to have V alignments less than 30 nucleotides:
+At this point, we have flagged `r percent.bad.1`% of our reads as "bad", or "off-target", and `r percent.good.1`% of our reads as "good" in our total alignment. When subsetting by clones, those numbers actually worsen to `r clone.percent.bad.1`% and `r clone.percent.good.1`% of reads for bad and good alignments, respectively. We can also see, from this plot, that it may be difficult to use a size cut off. The difference between total alignment length for good and bad alignments is not very large and also seems to be an artifact of V alignment length. Let's add our second criterion: false alignments are likely to have V alignments less than 30 nucleotides:
 
-```{r}
+```{r, echo = F}
 ##  Now we want to extract from the "bad" alignments any that may actually be "good" alignments 
 ##  and add them to the "good"
-off.target.2 <- off.target.1[off.target.1$V.length < 30,]
-
+off.target.2 <- off.target.1[off.target.1$V.length <= 30,]
 correct.2 <- rbind(correct.1, off.target.1[off.target.1$V.length > 30,])
+
+clone.off.target.2 <- clone.off.target.1[clone.off.target.1$V.length <= 30,]
+clone.correct.2 <- rbind(clone.correct.1, clone.off.target.1[clone.off.target.1$V.length > 30,])
 
 ##  What percent of total alignments are these?
 percent.bad.2 <- round(length(off.target.2[,1]) / total.alignments * 100, digits = 1)
-percent.good.2 <- round(length(off.target.2[,1]) / total.alignments * 100, digits = 1)
+percent.good.2 <- round(length(correct.2[,1]) / total.alignments * 100, digits = 1)
+
+clone.percent.bad.2 <- round(length(clone.off.target.2[,1]) / total.align.clones * 100, digits = 1)
+clone.percent.good.2 <- round(length(clone.correct.2[,1]) / total.align.clones * 100, digits = 1)
 
 ##  Add to summary
-summary.df$pct.out.range.short.v <- percent.good.2
+summary.df$pct.out.range.short.v <- percent.bad.2
 summary.df$pct.in.range.or.long.v <- percent.good.2
+clone.summary.df$pct.out.range.short.v <- clone.percent.bad.2
+clone.summary.df$pct.in.range.or.long.v <- clone.percent.good.2
+
+summary.df <- as.data.frame(summary.df, stringsAsFactors = F)
+clone.summary.df <- as.data.frame(clone.summary.df, stringsAsFactors = F)
+
+# Again let's extract data for plotting
+# Extract data for plotting
+correct.align.2 <- cbind("type" = rep("align.correct.2", times = length(correct.2$V.length)), 
+                         "V.length" = correct.2$V.length, "J.length" = correct.2$J.length, 
+                         "Total.length" = correct.2$tot.length)
+correct.clones.2 <- cbind("type" = rep("clone.correct.2", times = length(clone.correct.2$V.length)), 
+                          "V.length" = clone.correct.2$V.length, "J.length" = clone.correct.2$J.length, 
+                          "Total.length" = clone.correct.2$tot.length)
+bad.align.2 <- cbind("type" = rep("align.bad.2", times = length(off.target.2$V.length)), 
+                   "V.length" = off.target.2$V.length, "J.length" = off.target.2$J.length, 
+                   "Total.length" = off.target.2$tot.length)
+bad.clones.2 <- cbind("type" = rep("clone.bad.2", times = length(clone.off.target.2$V.length)), 
+                    "V.length" = clone.off.target.2$V.length, "J.length" = clone.off.target.2$J.length, 
+                    "Total.length" = clone.off.target.2$tot.length)
+
+# Melt for plotting
+second.stage.summary <- as.data.frame(rbind(correct.align.2, correct.clones.2, bad.align.2, bad.clones.2), 
+                                      stringsAsFactors = F)
+second.stage.summary <- melt(second.stage.summary, id.vars = "type")
+second.stage.summary$value <- as.numeric(second.stage.summary$value)
+rm(correct.align.2, correct.clones.2, bad.align.2, bad.clones.2)
+
+
+# Plot
+gg.second.stage <- ggplot(second.stage.summary, aes(x = variable, y = value, group = variable)) +
+  geom_boxplot(aes(fill = variable)) +
+  ggtitle("Equiv_151124 S1 Alignment Lengths\nRange and V Alignment Cut-Off") +
+  ylab("Alignment Length") +
+  theme(axis.title.x=element_blank()) +
+  labs(fill = "Alignment") +
+  scale_y_continuous(breaks=c(0, 30, 100, 170, 240, 300))
+
+
+gg.second.stage + facet_wrap( ~ type, nrow = 2)
 ```
 
-At this point, we have flagged `r percent.bad.2`% of our reads as "bad", and `r percent.good.2`% of our reads as good. Our ultimate goal of this analysis is to determine if there is a significant size difference between good and bad reads that we can utilize during library preparation.  
+At this point, we have flagged `r percent.bad.2`% of our reads as "bad", and `r percent.good.2`% of our reads as good. In comparison, looking at only our alignments that successfully assemble to clones, we've flagged `r clone.percent.bad.2`% of our reads as bad and `r clone.percent.good.2`% of our reads as good (Although there is actually 1 read that is still considered bad, but I rounded the percents to 2 decimal places).  
 
-We want to minimize false positives and false negatives. We don't want to have a large portion of our kept reads to be bad alignments, nor do we want to throw out a bunch of good alignments. I think that V alignment length 
+Our ultimate goal of this analysis is to determine if there is a significant size difference between good and bad reads that we can utilize during library preparation. From these results, it looks like we may not be able to use a size cut-off during libarary preparation. Our "bad" reads dropped from an initial `r percent.bad.1`% of reads to a final `r percent.bad.2`% of reads for our total alignments, and we drop from `r clone.percent.bad.1`% of reads to `r clone.percent.bad.2`% when using successfully assembled reads, an essentially perfect filter. A large percentage of reads are outside of our defined range of 170-240, but many of those are rescued by identifying their V alignment length.
+
+Before we think about alternative parameters to use as cut offs, let's look at an overall summary of the entire equivolume 151124 batch. We want to look at the above information, as well as information specific to V and J alignments
+
+```{r, echo = F}
+##  Read in aggregated summary data
+total.df <- read.table(summary.file, sep = '\t', header = T, stringsAsFactors = F)
+clone.total.df <- read.table(clone.summary.file, sep = '\t', header = T, stringsAsFactors = F)
+
+##  Subset summary info
+cutoffs <- total.df[,c(1,3:6)]
+clone.cutoffs <- clone.total.df[,c(1,3:6)]
+
+
+##  Melt
+melt.cutoffs <- melt(cutoffs, id.vars = 1, measure.vars=c(2,3,4,5), variable.name = "cutoff", value.name = "percent")
+clone.melt.cutoffs <- melt(clone.cutoffs, id.vars = 1, measure.vars=c(2,3,4,5), variable.name = "cutoff", 
+                           value.name = "percent")
+
+##  Boxplot of summary info
+gg.pct.outside.of.range <- ggplot(melt.cutoffs, aes(x = factor(cutoff), y = percent)) +
+  geom_boxplot() +
+  theme(axis.title.y = element_blank()) +
+  #ylab("Percent of Alignments Assigned to Group") +
+  #xlab("Grouping parameters") +
+  scale_x_discrete(labels=c("Percent outside \n170-240 bp", "Percent within \n170-240 bp", 
+                            "Percent Bad\n(Outside and Short V)", "Percent Good \n(Inside *or* Long V)")) +
+  ggtitle("Equiv_151124 Bad Alignment Groupings")
+#gg.pct.outside.of.range
+
+gg.clone.pct.outside.of.range <- ggplot(clone.melt.cutoffs, aes(x = factor(cutoff), y = percent)) +
+  geom_boxplot() +
+  ylab("Percent of Alignments Assigned to Group") +
+  xlab("Grouping parameters") +
+  scale_x_discrete(labels=c("Percent outside \n170-240 bp", "Percent within \n170-240 bp", 
+                            "Percent Bad\n(Outside and Short V)", "Percent Good \n(Inside *or* Long V)")) +
+  ggtitle("Equiv_151124 Successfully Assembled \nBad Alignment Groupings")
+#gg.clone.pct.outside.of.range
+
+suppressMessages(multiplot(gg.pct.outside.of.range, gg.clone.pct.outside.of.range))
+
+
+##  Turn into percents
+total.df[,7:14] <- total.df[,7:14] / total.df$total.alignments * 100
+clone.total.df[,7:14] <- clone.total.df[,7:14] / clone.total.df$total.alignments * 100
+
+##  Subset
+buckets <- total.df[,c(1,7:14)]
+clone.buckets <- clone.total.df[,c(1,7:14)]
+
+##  Melt attempt
+melt.buckets <- melt(buckets, id.vars = 1, variable.name = "Bucket Size", value.name = "Percent")
+clone.melt.buckets <- melt(clone.buckets, id.vars = 1, variable.name = "Bucket Size", value.name = "Percent")
+
+##  Create boxplot of distributions
+gg.align.buckets <- ggplot(melt.buckets, aes(x = melt.buckets$`Bucket Size`, y = melt.buckets$Percent)) +
+  geom_boxplot() +
+  #ylab("Percent of Alignments in Bucket") +
+  #xlab("Size of Alignment") +
+  ggtitle("Equiv_151124 Distribution of V and J Alignment Lengths")
+#gg.align.buckets
+
+gg.clone.buckets <- ggplot(clone.melt.buckets, aes(x = clone.melt.buckets$`Bucket Size`, y = clone.melt.buckets$Percent)) +
+  geom_boxplot() +
+  ylab("Percent of Alignments in Bucket") +
+  xlab("Size of Alignment") +
+  ggtitle("Equiv_151124 successfully Assembled \nDistribution of V and J Alignment Lengths")
+#gg.clone.buckets
+
+suppressMessages(multiplot(gg.align.buckets, gg.clone.buckets))
+```
+
+The first set of plots shows us that Sample 1 is similar to other samples. We rescue a good portion of the reads when we take V alignment length into consideration (Change between cols 1 and 3 or 2 and 4).
+
+From the second set of plots, we can see that there is a clear divide between V alignments, but not so clear for J alignments, when looking at all alignments. There were no J alignments greater than 60 base-pairs, so I did not include them in the plot. When looking at just alignments that successfully assemble, we see a similar distribution of V alignment lenghts, except we have very few alignments less than 30 bp, as we would expect. These plots suggest that using V alignment length as a cut off is appropriate, but that we should not use J alignment length in the same fashion.  
+
+Taken together, it may not be advisable to use a size selection step during library prep because many good alignments have a size that is outside of our desired range. 
+
+### Moving Forward
+
+1. I don't think we should implement a size selection step, but we should see if the new data follow these trends before making a final decision
+
+2. MiXCR seems to be doing a good job with the correct sequences. When we filter based on what we expect to see, the percentage of assembled reads (from total aligned reads) approaches 100%. That being said, additional quality metrics may be prudent.
+    + V/J and CDR3 identification comparison with MIGEC
+    + BWA-MEM aligner comparison
+
+
+```{r, echo = F}
+# On hold for now
+#Returning to sample 1 again, let's see if there are any other ways to divide the data and create a nice size cut off.
+
+#First, we could separate reads based off both V and J alignment length. One group is all alignments greater than 30, and the other is all less than 30. Of these groups, how many are inside or outside of our range?
+
+
+##  Subset based on V and J alignment length
+short.alignments <- align.data[align.data$V.length < 30 | align.data$J.length < 30,]
+long.alignments <- align.data[align.data$V.length >= 30 & align.data$J.length >= 30,]
+
+##  Now, of the along alignments, how many are outside the range of 170-240?
+long.outside <- long.alignments[long.alignments$tot.length < 170 | long.alignments$tot.length > 240,]
+
+percent.mistaken <- round(length(long.outside$Best.V.hit) / length(long.alignments$Best.V.hit) * 100, digits = 2)
+#Again we see that we can't create a meaningful size cut-off because `r percent.mistaken`% of reads that have long alignments are actually outside of the range we would like to see for the total alignment. 
+```
