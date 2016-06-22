@@ -456,12 +456,16 @@ mixcr.qc <- read.table("~/Desktop/OHSU/tcr_spike/data/equiv_DNA160107LC/160107_m
 We would expect all aligned reads to have a V, D, and a J region. MiXCR only requires a V and a J hit for alignment, but if our sequencing is correct, we should always have a D region when we have a V and a J region. 
 
 ```{r, echo = F}
-pct.no.d <- ggplot(mixcr.qc, aes(x = 1, y = pct.aligned.missing.d)) +
-  geom_boxplot() +
-  scale_x_continuous((breaks=NULL)) +
+pct.no.d <- ggplot(mixcr.qc, aes(x = 1, y = pct.aligned.missing.d), group = batch.id) +
+  geom_boxplot(aes(fill = batch.id)) +
+  guides(fill = FALSE) +
   theme(axis.title.x = element_blank()) +
-  ggtitle("Fig. 8 160107 Aligned Reads Missing D Region") +
-  ylab("Percent of Total Aligned")
+  ggtitle("160107 Aligned Reads Missing D Region") +
+  ylab("Percent of Total Aligned") +
+  scale_x_discrete(breaks = NULL) +
+  theme(axis.title.y = element_text(face = "bold", size = 20),
+        axis.text.y = element_text(size=15),
+        plot.title = element_text(size = 25))
 pct.no.d
 summary(mixcr.qc$pct.aligned.missing.d)
 ```
