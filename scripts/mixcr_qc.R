@@ -8,7 +8,9 @@
 arguments <- commandArgs(trailingOnly = T)
 
 align.file <- arguments[1]
+align.file <- "/Volumes/DNA151124LC/mixcr/export_align/DNA151124LC_1_S1_alignment_exported.txt"
 assemble.file <- arguments[2]
+assemble.file <- "/Volumes/DNA151124LC/mixcr/export_clones/DNA151124LC_1_S1_alignment_clones_exported.txt"
 align.output <- arguments[3]
 assemble.output <- arguments[4]
 qc.output <- arguments[5]
@@ -23,6 +25,8 @@ assemble.data <- read.table(assemble.file, sep = "\t", header = T, na.strings = 
 
 # Extract Sample Name
 sample.number <- gsub(".*_S|_alignment.*", '', align.file)
+# TO DO
+# take from assembly file as well and double check that they are the same.
 
 # Extract Batch Name
 batch <- gsub(".*DNA|LC.*", '', align.file)
@@ -94,6 +98,10 @@ write.table(missing.d.ids, file = file.path(align.output, missing.d.output.name)
 ### Extract QC Information ###
 ##############################
 
+# TO DO
+# Turn questions into statements. They're not "note to self"s
+# ex) Identify assembled reads that don't have D regions
+
 # Percent of reads considered aligned even though they don't have D regions
 align.percent.missing.d <- length(align.missing.d[,1]) / total.aligned * 100
 
@@ -109,9 +117,6 @@ align.have.d.not.assembled <- align.have.d[!(complete.cases(align.have.d$Clone.I
 # As a percentage of all alignments with D regions
 pct.have.d.not.assembled <- length(align.have.d.not.assembled[,1]) / 
   length(align.have.d[,1]) * 100
-# As a percentage of all alignments - don't think this tells us anything
-#pct.have.d.not.assembled.full <- length(align.have.d.not.assembled[,1]) /
-#  total.aligned * 100
 
 # How many assembled reads don't have D regions?
 assemble.missing.d <- assemble.data[!(complete.cases(assemble.data$Best.D.hit)),]
@@ -125,7 +130,6 @@ qc.summary <- data.frame(sample.id = character(),
                          pct.aligned.missing.d = integer(),
                          pct.aligned.not.assembled = integer(),
                          pct.aligned.have.d.not.assembled.of.aligned.w.d = integer(),
-                         #pct.aligned.have.d.not.assembled.of.total.aligned = integer(),
                          pct.assembled.missing.d = integer(),
                          stringsAsFactors=FALSE)
 
