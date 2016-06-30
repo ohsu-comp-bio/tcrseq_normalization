@@ -14,7 +14,7 @@ library(plyr)
 
 
 ```{r, echo = F}
-source("~/Desktop/OHSU/tcr_spike/scripts/primer_independence_ref.R")
+source("~/Desktop/OHSU/tcr_spike/scripts/tcrseq_normalization/scripts/primer_independence_ref.R")
 ```
 
 ## Summary of Dataset and Purpose
