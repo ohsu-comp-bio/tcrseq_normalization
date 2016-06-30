@@ -153,7 +153,7 @@ mammary_DNA160609 <- weird.vj(clone.dir = "/Volumes/mammary_DNA160609LC/normaliz
 mammary_DNA160609
 ```
 
-It's presence in all of the samples, with a high clone fraction, suggests that it is a contamination. The fact that they all have identical CDR3 regions is further evidence. I did not include it in this report, but this clone did not show up in any samples when I ran the same analysis on equivol\_DNA160107LC and equivol\_DNA151124LC.
+Its presence in all of the samples, with a high clone fraction, suggests that it is a contamination. The fact that they all have identical CDR3 regions is further evidence. I did not include it in this report, but this clone did not show up in any samples when I ran the same analysis on equivol\_DNA160107LC and equivol\_DNA151124LC.
 
 
 #### Spike Count Analysis
