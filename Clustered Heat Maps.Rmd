@@ -1,0 +1,117 @@
+
+title: "Independence Test for F and R Primers cnt'd - clustered heatmaps""
+author: "Burcu"
+date: "June 24, 2016"
+output: html_document
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(reshape2)
+library(MASS)
+library(gplots)
+library(ggplot2)
+library(ggthemes)
+library(viridis)
+library(gganimate)
+```
+
+
+## Aggregate all samples into a single table
+
+```{r cars}
+
+# Set directory
+count.dir <- "C:/Users/burcu/Desktop/TCR/knitr-git/norm_knitr/independence/160609_spike_counts_25bp/160609_only_spikes"
+
+# Read in files and sort by sample number
+all.counts <- list.files(count.dir)
+all.counts <- all.counts[order(as.numeric(gsub(".*_S|.assembled.*", '', all.counts)))]
+
+# Read in first file to start aggregate data frame
+count.df <- read.table(file.path(count.dir, all.counts[1]), sep =',', header = T)
+count.df <- count.df[,3:5]
+
+# Combine spike counts for all files into 1 data frame
+  # Columns are samples
+  # Rows are spikes
+for (i in 2:length(all.counts)){
+  curr.df <- read.table(file.path(count.dir, all.counts[i]), sep = ',', header = T)
+  count.df <- cbind(count.df, curr.df$spike.count)
+}   #   for i in 2:length(new.counts)
+colnames(count.df) <- c("V", "J", seq(1:length(all.counts)))
+```
+
+## chi square test and residual table
+
+``` {r}
+
+## Preperaing the chi square matrix (V as columns, J as rows)
+
+vbyj.first<- acast(count.df, V~J, value.var = 14)
+
+## Chi squared test
+
+chi.first <- chisq.test(vbyj.first, correct = F)
+
+## Creating residuals tables
+
+prtype <- chi.first$residuals
+
+
+dd.col <- as.dendrogram(hclust(dist(prtype)))
+col.ord <- order.dendrogram(dd.col)
+
+dd.row <- as.dendrogram(hclust(dist(t(prtype))))
+row.ord <- order.dendrogram(dd.row)
+
+```
+
+## Creating animation of CLUSTERED heatmaps of pearson residual matrices of 20 samples to visualize the patterns
+
+
+``` {r}
+
+# Creating a facet of heat maps with all samples next to each other by using ggplot
+
+
+pear.res<-function(colName)
+{
+  temp.chi <- chisq.test(acast(count.df, V~J,value.var = colName) , correct = F)
+  temp.res<-temp.chi$residuals
+#ORDERING STARTS HERE
+    #temp.res.ord<-scale(temp.res)[col.ord, row.ord]
+  temp.res.ord<-temp.res[col.ord, row.ord]
+  c_names <- attr(temp.res.ord, "dimnames")
+  
+  temp.res.ord <- as.data.frame(temp.res.ord)
+  temp.res.ord$V <- c_names[[1]]
+  temp.res.ord$V<-with(temp.res.ord, factor(V, levels=V, ordered = TRUE))
+#Should be ordered nicely, now melt it!  
+  ret.res<- melt(temp.res.ord,id_vars=c("V"))
+  ret.res$sample<-rep(colName,nrow(temp.res))
+  ret.res
+}
+
+
+res<-lapply(colnames(count.df[ ,3:22]), pear.res)
+res.bound<-do.call(rbind,res)
+#res.bound<-merge(tissue.lookup, res.bound, by.x = "num", by.y="sample")
+```
+
+``` {r fig.show="animate"}
+
+gg<-ggplot(res.bound, aes(x=variable, y=V, fill=value, frame=sample))
+gg<-gg+geom_tile(color="white", size=0.1)
+gg<-gg+scale_fill_gradient2()
+gg<-gg+theme(axis.text=element_text(size=6))
+gg<-gg+theme(axis.text.x = element_text(angle = 90))
+#gg<-gg+facet_wrap(~sample, ncol=5)
+gg_animate(gg)
+gg
+
+```
+## Comments:
+
+Here we see clustering created V-J blocks. The first 3 J primers, then the next 6, then the last 4, each behaves a bit like a block. Similarly the first 6 V primers, then the next 7, then the last 7,
+also behave a bit like a block. Animation shows similarly behaving blocks across samples. For clustering "eucliedan distance" is used.
+
