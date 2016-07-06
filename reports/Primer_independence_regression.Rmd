@@ -35,9 +35,9 @@ For this analysis, we are using 20 samples that contain only spike-ins and no DN
     + Spike Count  
 
 
-Each sample has an individual file containing the 260 counts. These need to be combined into a single data frame prior to the analysis.
+Each sample has an individual file containing the 260 counts. These need to be combined into a single data frame prior to the analysis. In addition, we need to create dummy variables for each VJ combination to use as identifiers during our step functions.
 
-```{r read data}
+```{r read data1}
 # List spike count files, and sort by sample number
 # Combine files into a data frame with 260 rows and 1 column per sample
 # Melt data frame to get 1 row for each VJ + sample combination
@@ -52,150 +52,36 @@ Our question is whether or not forward and reverse primers amplify independently
 ```{r make models}
 # Make models for with and without primer interaction
 DNA160609.models <- make.models(DNA160609)
+DNA160609.models$log2.wo.int$call
+DNA160609.models$log2.with.int$call
 ```
 
 ### Preliminary Results
 
-A quick comparison of R^2^ values suggests that the model which includes interaction between primers is a better fit. That model has an R^2^ value of 0.8584 vs. the non-interaction model's R^2^ of 0.3753. Although this suggests that it is important to include interaction effects in our model, not all of them may be giving us useful information. We can iteratively add and remove different interactions and see the effect of individual combinations of primers on our model's fit.
+A quick comparison of R^2^ values suggests that the model which includes interaction between primers is a better fit. That model has an R^2^ value of `r DNA160609.models$log2.with.int.r2` vs. the non-interaction model's R^2^ of `r DNA160609.models$log2.wo.int.r2`. Although this suggests that it is important to include interaction effects in our model, not all of them may be giving us useful information. We can iteratively add and remove different interactions and see the effect of individual combinations of primers on our model's fit. 
 
+
+### All 260 primer combinations
 
 ```{r Step 1}
-DNA160609.steps <- steps(DNA160609)
+vj.combos <- colnames(DNA160609$log2)[6:265]
+DNA160609.steps <- steps(DNA160609, vj.combos)
 DNA160609.steps$both.summary$call
+DNA160609.steps$both$adj.r.squared
 ```
 
-The step function was not working with the formula `count ~ V * J` or `count ~ V + J + V:J`. It produced an output, and picked count ~ V * J as the final model, but did not include J1-1 or V1 (and all of their combinations) in the analysis. Instead, I used the formula `count ~ V + J + combos` where combos is a new variable made by pasting the V and J primers together for a particular combination. The step function on that model concluded that count ~ combos is the best model with an R^2^ of `r DNA160609.steps$both.summary$adj.r.squared`.
-
-## Determining important combinations
-
-### Removing unsignificant primer combinations
-
-#### Only significant VJ combinations from first lm
-
-Now that we have the step function completed, we want to step through with fewer and fewer combinations, to see if any of them are particularly important. First, we'll remove all of the VJ combinations that have p-values greater than 0.05.
-
-```{r First Factor Evaluation}
-DNA160609.first.subset <- remove.unsig.variables(DNA160609, DNA160609.steps)
-DNA160609.first.subset.steps <- steps(DNA160609.first.subset)
-DNA160609.first.subset.steps$both.summary$call
-```
-
-Again just the combos are picked for the final model, which has an R^2^ of `r DNA160609.first.subset.steps$both.summary$adj.r.squared`. So our R^2^ has increased by `r DNA160609.first.subset.steps$both.summary$adj.r.squared - DNA160609.steps$both.summary$adj.r.squared` from removing `r length(DNA160609.steps$both.summary$coefficients[,1]) - length(DNA160609.first.subset.steps$both.summary$coefficients[,1]) primer combinations of lesser importance.
-
-#### Only significant VJ combinations from second lm
-
-Let's iterate once again, using the same p-value threshold and the new p-values produced by the subsetted model.
-
-```{r Second Factor Evaluation}
-DNA160609.second.subset <- remove.unsig.variables(DNA160609, DNA160609.first.subset.steps)
-DNA160609.second.subset.steps <- steps(DNA160609.second.subset)
-DNA160609.second.subset.steps$both.summary$call
-```
-
-The R^2^ value actually went down to `r DNA160609.second.subset.steps$both.summary$adj.r.squared` this time. So our R^2^ has increased by `r DNA160609.second.subset.steps$both.summary$adj.r.squared - DNA160609.steps$both.summary$adj.r.squared` from removing `r length(DNA160609.steps$both.summary$coefficients[,1]) - length(DNA160609.second.subset.steps$both.summary$coefficients[,1])` primer combinations of lesser importance.
-
-#### Only significant VJ combinations from third lm
-
-Let's subset a final time and run the step function, to see what we get.
-
-```{r Third Factor Evaluation}
-DNA160609.third.subset <- remove.unsig.variables(DNA160609, DNA160609.second.subset.steps)
-DNA160609.third.subset.steps <- steps(DNA160609.third.subset)
-DNA160609.third.subset.steps$both.summary$call
-```
-
-The R^2^ is relatively unchanged at `r DNA160609.third.subset.steps$both.summary$adj.r.squared`. From this, we can see that the first subset increased R^2^ the most, although even that increase was modest. The combinations removed during the first step are the least important for determining spike counts. There are `r length(DNA160609.first.subset$unsig.coeff[,1])` of them:
+The full model used in the step function is `lm(value ~ V + J + V1_J1-1 + V1_J1-2 + ...)` where ... contains all 260 primer combinations. From the call, we see that a majority of the VJ combinations contribute to the model. There are `r length(names(DNA160609.steps$both$coefficients))` significant factors total. Of those, `r length(names(DNA160609.steps$both$coefficients)[names(DNA160609.steps$both$coefficients) %in% vj.combos])` are VJ combinations. They are:
 
 ```{r}
-DNA160609.first.subset$unsig.coeff
+names(DNA160609.steps$both$coefficients)[names(DNA160609.steps$both$coefficients) %in% vj.combos]
+```
+```{r, echo = F}
+vj.combo.coeff <- DNA160609.steps$both.summary$coefficients[rownames(DNA160609.steps$both.summary$coefficients) %in% vj.combos,]
+vj.individ.coeff <- DNA160609.steps$both.summary$coefficients[!(rownames(DNA160609.steps$both.summary$coefficients) %in% vj.combos),]
+
 ```
 
-### Removing significant combinations
+Of these VJ combinations, almost all (`r length(rownames(vj.combo.coeff[vj.combo.coeff[,4] < 0.05,]))`) have p-values less than 0.05, and `r length(rownames(vj.combo.coeff[vj.combo.coeff[,4] < 2e-16,]))` are extremely significant (p < 2e-16). We can also see that of the `r length(rownames(vj.individ.coeff)) - 1` individual V and J identities chosen by the model, `r length(rownames(vj.individ.coeff[vj.individ.coeff[,4] < 0.05,]))` have p-values less than 0.05 and `r length(rownames(vj.individ.coeff[vj.individ.coeff[,4] < 2e-16,]))` have p-values less than 2e-16.
 
-Instead of removing unsignificant combinations and looking for an increase in R^2^ to identify unimportant primer combinations, we can go in the reverse direction. In the following sections, I will be removing significant primer combinations (based on varying thresholds) and looking for a decrease in R^2^. A significant decrease in R^2^ will imply that the significant primer combinations that were excluded from the model are important in determining spike counts.
+These results suggest that primer combinations are indeed important for determining spike counts. We must then use all 260 scaling factors during our normalization, but further analysis may suggest to us a way to adjust primer concentration appropriately using these results.
 
-#### Remove VJ combinations with p < 0.001
-
-First, we'll use a modest cut-off of 0.001. This means we will remove all primer combinations from our dataset whose p-values from our original model were less than 0.001. The remaining data that we will enter into the linear model are our least significant values.
-
-```{r First }
-DNA160609.first.subset.b <- remove.sig.variables(DNA160609, DNA160609.steps, 0.001)
-DNA160609.first.subset.b.steps <- steps(DNA160609.first.subset.b)
-DNA160609.first.subset.b.steps$both.summary$call
-```
-
-Removing these `r length(DNA160609.first.subset.b$"removed combos"[,1])` primer combinations significantly dropped the R^2^ value from `r DNA160609.steps$both.summary$adj.r.squared` to `r DNA160609.first.subset.b.steps$both.summary$adj.r.squared`, sugggesting that all of these primer combinations are important to our model. We removed `r length(DNA160609.first.subset.b$"removed combos"[,1])` combinations here, which is over half of the total combinations, and not very informative. In addition, each removal of a primer combination is approximately associated with a `r (DNA160609.steps$both.summary$adj.r.squared - DNA160609.first.subset.b.steps$both.summary$adj.r.squared) / length(DNA160609.first.subset.b$"removed combos"[,1])` decrease in R^2^.
-
-#### Remove VJ combinations with p < 10^-5^
-
-Let's try again, subsetting from the original data frame, but using a more stringent p-value cut-off of 0.00001. This time, the data that we will model will be all primer combinations whose p-values in the original model were greater than 10^-5^.
-
-```{r Second }
-DNA160609.second.subset.b <- remove.sig.variables(DNA160609, DNA160609.steps, 0.00001)
-DNA160609.second.subset.b.steps <- steps(DNA160609.second.subset.b)
-DNA160609.second.subset.b.steps$both.summary$call
-```
-
-For this iteration, we removed `r length(DNA160609.second.subset.b$"removed combos"[,1])` primer combinations and now have an R^2^ of: `r DNA160609.second.subset.b.steps$both.summary$adj.r.squared`. Additionally, each removal of a primer combination is approximately associated with a `r (DNA160609.steps$both.summary$adj.r.squared - DNA160609.second.subset.b.steps$both.summary$adj.r.squared) / length(DNA160609.second.subset.b$"removed combos"[,1])` decrease in R^2^.
-
-#### Remove VJ combinations with p < 10^-7^
-
-Let's subset once again, with an even more stringent p-value cut-off of 10^-7^. Once again, the data that we are modelling will be all primer combinations whose p-values from the original model were greater than 10^-7^.
-
-```{r Third}
-DNA160609.third.subset.b <- remove.sig.variables(DNA160609, DNA160609.steps, 0.0000001)
-DNA160609.third.subset.b.steps <- steps(DNA160609.third.subset.b)
-DNA160609.third.subset.b.steps$both.summary$call
-```
-
-This subset gives us an R^2^ of `r DNA160609.third.subset.b.steps$both.summary$adj.r.squared`. For this subset, we removed `r length(DNA160609.third.subset.b$"removed combos"[,1])` primer combinations. Once again, each removal of a primer combination is approximately associated with a `r (DNA160609.steps$both.summary$adj.r.squared - DNA160609.third.subset.b.steps$both.summary$adj.r.squared) / length(DNA160609.third.subset.b$"removed combos"[,1])` decrease in R^2^.
-
-
-#### Remove VJ combinations with p < 10^-16^
-
-There are quite a few 2 < 10e-16 combinations, what does our model look like if we use everything but those? In other words, if we remove our most significant primer combinations only, do we have a significant drop in R^2^?
-
-```{r fourth}
-DNA160609.fourth.subset.b <- remove.sig.variables(DNA160609, DNA160609.steps, 0.000000000000001)
-DNA160609.fourth.subset.b.steps <- steps(DNA160609.fourth.subset.b)
-DNA160609.fourth.subset.b.steps$both.summary$call
-```
-
-This subset gives us an R^2^ of `r DNA160609.fourth.subset.b.steps$both.summary$adj.r.squared`. For this subset, we removed `r length(DNA160609.fourth.subset.b$"removed combos"[,1])` primer combinations, and each removal is approximately associated with a `r (DNA160609.steps$both.summary$adj.r.squared - DNA160609.fourth.subset.b.steps$both.summary$adj.r.squared) / length(DNA160609.fourth.subset.b$"removed combos"[,1])` decrease in R^2^.
-
-#### Summary of removing significant combinations
-
-Our first subset resulted in the most drastic drop in R^2^ as well as the greatest per-combo-removed drop. I don't know how to determine if the drops/increases in R^2^ are due to the identities of the primer combinations, or the fact that we're removing significant portions of the dataset.
-
-#### Testing each extermely significant combinations individually
-
-There are `r length(DNA160609.fourth.subset.b$"removed combos"[,1])` combinations with p-values less than 10^-16^. Let's see what happens if we iterate over all of these VJ combinations, removing them one at a time. The data sets will be the full data set, minus a single primer combination.
-
-```{r Sixth}
-# Remove one-by-one and record adj.r.square values produced.
-compare.r2s <- iterate.sig.combos(DNA160609, DNA160609.steps)
-# Look at the range of values produced
-summary(as.numeric(compare.r2s$R2))
-# Look at 5 smalles adj.r.sq values:
-sorted.r2 <- compare.r2s[order(as.numeric(compare.r2s$R2)),]
-lowest.5 <- sorted.r2[1:5,]
-lowest.5
-```
-
-From the range of R^2^ values, we see that no single primer combination provides an undue boost to the model. We can look at the V and J identities of these primer combinations and see if anythign stands out.
-
-```{r}
-# Look at the individual V's and J's that make up the 77 most important combinations
-compare.r2s$V <- gsub("-J.*", "", compare.r2s$Primer.Combo)
-compare.r2s$J <- gsub("V.*J", "J", compare.r2s$Primer.Combo)
-vcounts <- count(compare.r2s, "V")
-jcounts <- count(compare.r2s, "J")
-vcounts[order(vcounts$freq, decreasing = T),]
-jcounts[order(jcounts$freq, decreasing = T),]
-```
-
-Looks like V4 and J1-3 are involved in the most significant combinations.
-
-#### Conclusions
-
-From this report, it apprears that primer combination is important for determining spike counts. Additionally, there does not appear to be any particular primer combination that increases the model fit more than any of the other combinations. Based of this analsysis, future normalization methods will have to take primer interactions into consideration and create 260 scaling factors, not just 33.
