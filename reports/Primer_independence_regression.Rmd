@@ -1,0 +1,87 @@
+---
+title: "Primer Independence Regression"
+author: "Wes Horton"
+date: "June 22, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(reshape2)
+library(MASS)
+library(plyr)
+```
+
+
+```{r, echo = F}
+source("~/Desktop/OHSU/tcr_spike/scripts/tcrseq_normalization/scripts/primer_independence_ref.R")
+```
+
+## Summary of Dataset and Purpose
+
+We have approximately 170 samples per sequencing batch, and for each sample we have 260 counts, one for each of the unique combinations of V and J primers. The primers have different amplification rates, which we need to characterize. In order to do this most accurately, we need to determine if the forward (V) primer and the reverse (J) primer act independently to influence spike amplification, or if their interaction is important as well.  
+
+For this analysis, we are using 20 samples that contain only spike-ins and no DNA. They are samples 1-20 from the batch DNA160609LC, found at /home/exacloud/lustre1/CompBio/data/tcrseq/dhaarini/DNA160609LC/spike_counts/25bp/counts/. 
+
+### Variables
+
+1. Independent variables
+    + Forward (V) primer identity - 20 total (categorical)
+    + Reverse (J) primer identity - 13 total (categorical)
+    + Primer combination - 260 (categorical)
+  
+  
+2. Dependent variable
+    + Spike Count  
+
+
+Each sample has an individual file containing the 260 counts. These need to be combined into a single data frame prior to the analysis. In addition, we need to create dummy variables for each VJ combination to use as identifiers during our step functions.
+
+```{r read data1}
+# List spike count files, and sort by sample number
+# Combine files into a data frame with 260 rows and 1 column per sample
+# Melt data frame to get 1 row for each VJ + sample combination
+# Take the log2 of spike counts.
+DNA160609 <- read.data("/Volumes/DNA160609LC/spike_counts/25bp/spike_only_counts/")
+```
+
+## Linear Regression Model
+
+Our question is whether or not forward and reverse primers amplify independently of one another, or dependently. We can create two linear models, one for each scenario, and compare the results.
+
+```{r make models}
+# Make models for with and without primer interaction
+DNA160609.models <- make.models(DNA160609)
+DNA160609.models$log2.wo.int$call
+DNA160609.models$log2.with.int$call
+```
+
+### Preliminary Results
+
+A quick comparison of R^2^ values suggests that the model which includes interaction between primers is a better fit. That model has an R^2^ value of `r DNA160609.models$log2.with.int.r2` vs. the non-interaction model's R^2^ of `r DNA160609.models$log2.wo.int.r2`. Although this suggests that it is important to include interaction effects in our model, not all of them may be giving us useful information. We can iteratively add and remove different interactions and see the effect of individual combinations of primers on our model's fit. 
+
+
+### All 260 primer combinations
+
+```{r Step 1}
+vj.combos <- colnames(DNA160609$log2)[6:265]
+DNA160609.steps <- steps(DNA160609, vj.combos)
+DNA160609.steps$both.summary$call
+DNA160609.steps$both$adj.r.squared
+```
+
+The full model used in the step function is `lm(value ~ V + J + V1_J1-1 + V1_J1-2 + ...)` where ... contains all 260 primer combinations. From the call, we see that a majority of the VJ combinations contribute to the model. There are `r length(names(DNA160609.steps$both$coefficients))` significant factors total. Of those, `r length(names(DNA160609.steps$both$coefficients)[names(DNA160609.steps$both$coefficients) %in% vj.combos])` are VJ combinations. They are:
+
+```{r}
+names(DNA160609.steps$both$coefficients)[names(DNA160609.steps$both$coefficients) %in% vj.combos]
+```
+```{r, echo = F}
+vj.combo.coeff <- DNA160609.steps$both.summary$coefficients[rownames(DNA160609.steps$both.summary$coefficients) %in% vj.combos,]
+vj.individ.coeff <- DNA160609.steps$both.summary$coefficients[!(rownames(DNA160609.steps$both.summary$coefficients) %in% vj.combos),]
+
+```
+
+Of these VJ combinations, almost all (`r length(rownames(vj.combo.coeff[vj.combo.coeff[,4] < 0.05,]))`) have p-values less than 0.05, and `r length(rownames(vj.combo.coeff[vj.combo.coeff[,4] < 2e-16,]))` are extremely significant (p < 2e-16). We can also see that of the `r length(rownames(vj.individ.coeff)) - 1` individual V and J identities chosen by the model, `r length(rownames(vj.individ.coeff[vj.individ.coeff[,4] < 0.05,]))` have p-values less than 0.05 and `r length(rownames(vj.individ.coeff[vj.individ.coeff[,4] < 2e-16,]))` have p-values less than 2e-16.
+
+These results suggest that primer combinations are indeed important for determining spike counts. We must then use all 260 scaling factors during our normalization, but further analysis may suggest to us a way to adjust primer concentration appropriately using these results.
+

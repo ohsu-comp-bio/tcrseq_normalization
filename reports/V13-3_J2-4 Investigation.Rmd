@@ -1,0 +1,181 @@
+---
+title: "V13-3_J2-4 Investigation"
+author: "Wes Horton"
+date: "June 30, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(reshape2)
+library(ggplot2)
+```
+```{r, echo = F}
+weird.vj <- function(clone.dir, metadata, treat.col){
+
+  ##  Get clone data
+  clone.files <- list.files(clone.dir)
+  clone.files <- clone.files[order(as.numeric(gsub(".*S|_align.*", "", clone.files)))]
+  ## Get Metadata
+  metadata <- read.csv(metadata, 
+                       stringsAsFactors = F, header = T)
+  
+  ##  Create empty matrix to append values to
+  summary.df <- matrix(nrow = length(clone.files), ncol = 11)
+
+  ##  Iterate over files
+  for (i in 1:length(clone.files)){
+    
+    ##  Get clone data
+    curr.clone <- read.table(paste(clone.dir, clone.files[i], sep = ''), header = T, sep = "\t",
+                             stringsAsFactors = F,
+                             na.strings = c('', ' ', "NA"))
+    
+    ##  Extract offending clone - aka the one that looks like the P14 clone (same AA seq, V, and J)
+    offending.clone <- curr.clone[curr.clone$AA..Seq..CDR3 == "CASSDAGGRNTLYF" & 
+                                    curr.clone$V.segments == "V133" &
+                                    curr.clone$J.segments == "J2-4",]
+    
+    ##  If more than one clone meets these criteria, only take the top one, 
+    ##  as it is most likely to be the unnatural one caused
+    ##  by contamination.
+    offending.clone <- offending.clone[1,]
+    
+    ##  Extract row name to denote its rank in the original clone count file
+    ##  Rank = 1 means it had the highest clone counts, Rank = 2 means second-highest, etc.
+    rank <- rownames(offending.clone)
+    
+    ##  Subset to only the important columns so that visual analysis is easier.
+    offending.clone <- offending.clone[,c("Clone.ID", "Clone.count", "Clone.fraction", "AA..Seq..CDR3",
+                                          "V.segments", "J.segments", "Normalized.clone.count",
+                                          "Normalized.clone.fraction")]
+    
+    ##  Gather everything into a row to add to the empty matrix
+    row <- c("Sample" = paste("S", i, sep = ''), "Rank" = rank, "Treatment" = metadata[,treat.col][i],
+             unlist(offending.clone[1,]))
+    
+    ##  Add to matrix
+    summary.df[i,] <- row
+    
+  }  ##  for (i in 1:length(clone.files))
+
+  ##  Add column names
+  colnames(summary.df) <- names(row)
+  
+  ##  return data.frame
+  return(summary.df)
+}  ##  weird.vj(clone.dir, metadata, treat.col)
+
+spike.analysis <- function(count.dir, subset){
+  
+  ##  Get count file and order
+  all.counts <- list.files(count.dir)
+  all.counts <- all.counts[order(as.numeric(gsub(".*_S|.assembled.*", '', all.counts)))]
+  
+  ## Subset, if required
+  if(!missing(subset)){
+    all.counts <- all.counts[subset[1]:subset[2]]
+  } # fi
+  
+  ## open one file to get column names
+  test.count <- read.table(paste(count.dir, all.counts[1], sep = ''), header = T, sep = ',',
+                           stringsAsFactors = F)
+  names <- paste(test.count$V, test.count$J, sep = "_")
+  
+  ##  Create empty matrix and vector for data and names
+  spike.table <- matrix(nrow = length(all.counts), ncol = 260)
+  new.row.names <- vector(mode = "character", length = length(all.counts))
+  
+  for (i in 1:length(all.counts)){
+    
+    ##  Get data
+    full.table <- read.table(paste(count.dir, all.counts[i], sep = ''), header = T, sep = ',', 
+                             stringsAsFactors = F)
+    
+    ##  Extract sample name
+    curr.name <- strsplit(all.counts[i], '\\.')[[1]][1]
+    new.name <- strsplit(curr.name, "_")[[1]][2]
+    new.row.names[i] <- new.name
+    
+    ##  Extract spike count column and place it in empty table as a row
+    spikes <- full.table$spike.count
+    spike.table[i,] <- spikes
+    
+  }  ##  for
+  
+  ##  Add row and column names, change to data frame
+  colnames(spike.table) <- names
+  rownames(spike.table) <- new.row.names
+  spike.table <- as.data.frame(spike.table, stringsAsFactors = F)
+  
+  ##  Create a summary data frame for export
+  new.data.frame <- NULL
+  new.data.frame$Sample <- row.names(spike.table)
+  new.data.frame$median <- apply(spike.table, 1, function(x) summary(x)[3])
+  new.data.frame$mean <- apply(spike.table, 1, mean)
+  new.data.frame$V133_J24 <- spike.table$`V13-3-_J2-4`
+  new.data.frame <- as.data.frame(new.data.frame, stringsAsFactors = F)
+  
+  ##  Return
+  return(new.data.frame)
+}  ## spike.analysis(count.dir, subset)
+```
+
+### Summary
+
+In the most recent two batches (DNA160609LC and mammary_DNA160609LC) we observed a particular spike combination present in many of the clone count files that we looked at. This particular spike combination also appears to be the combination that corresponds to the clone present in the p14 monoclonal samples.
+
+### Hypotheses
+
+This could either be an error in MiXCR that is consistently identifying random reads as this particular VJ combination, or it could be wet-bench contamination. One possible explanation for wet bench contamination is that the V13-3/J2-4 primer pair is particularly strong at amplifying, and any residual p14 DNA will be amplified at high rates relative to the more abundant DNA in the actual sample.
+
+### Procedure
+
+#### Presence in Export Clone files
+
+Through visual inspection of a few files, I noticed that the CDR3 amino acid sequence is the same for all of these clones, and is the same for the monoclonal p14 clone. Based on this, I decided to search each file for a clone with:
+
+1. amino acid sequence == CASSDAGGRNTLYF (This is the p14 sequence)
+2. V segment == V13-3
+3. J segment == J2-4
+
+
+
+```{r}
+DNA160609 <- weird.vj(clone.dir = "/Volumes/DNA160609LC/normalization/normalized_clones/",
+                      metadata = "~/Desktop/OHSU/tcr_spike/data/DNA160609LC/sample_identification.csv",
+                      treat.col = "Treatment_spike")
+DNA160609
+
+mammary_DNA160609 <- weird.vj(clone.dir = "/Volumes/mammary_DNA160609LC/normalization/normalized_clones/",
+                              metadata = "~/Desktop/OHSU/tcr_spike/data/mammary_DNA160609LC/mammary_treatments.csv", 
+                              treat.col = "Treatment")
+mammary_DNA160609
+```
+
+Its presence in all of the samples, with a high clone fraction, suggests that it is a contamination. The fact that they all have identical CDR3 regions is further evidence. I did not include it in this report, but this clone did not show up in any samples when I ran the same analysis on equivol\_DNA160107LC and equivol\_DNA151124LC.
+
+
+#### Spike Count Analysis
+
+This particular primer combination may be in high numbers due to the fact that V13-3/J2-4 is a vigorous primer combination compared to other primer pairs. We can look at the 20 samples from DNA160609LC to see how it stacks up against other pairs. Note, even if this sequence is a contamination, the spike counts should not be affected. Thee presence of p14 DNA could potentially reduce V13-3/J2-4 spike counts because the DNA would be taking up more of the primers, but we generally assume an excess of primers. I will run the analysis on data from a previous batch as well in order to compare.
+
+```{r}
+DNA160609.spikes.only <- spike.analysis(count.dir = "/Volumes/DNA160609LC/spike_counts/25bp/counts/", 
+                                   subset = c(1, 20))
+DNA160609.spikes.only
+
+DNA160609.all.samples <- spike.analysis(count.dir = "/Volumes/DNA160609LC/spike_counts/25bp/counts/")
+DNA160609.all.samples
+
+DNA151124 <- spike.analysis(count.dir = "/Volumes/DNA151124LC/spike_counts/25bp/counts/")
+DNA151124
+```
+
+From these tables, we see that the V13-3/J2-4 primer pair does not produce spike counts significantly higher than other combinations. 
+
+### Conclusions
+
+The batch summaries suggest that the samples were contaminated by p14 DNA at some point. The spike counts suggest that V13-3/J2-4 is not a particularly efficient primer pair. Based on these two observations, it seems that this is just a one-off fluke from using monoclonal samples. I think we should delete these entries from the export\_clones and export\_alignments data before running other analyses.
+
+
