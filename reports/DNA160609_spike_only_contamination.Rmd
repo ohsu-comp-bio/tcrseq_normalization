@@ -1,0 +1,290 @@
+---
+title: "DNA160609_spike_only_contamination"
+author: "Wes Horton"
+date: "July 14, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr)
+library(data.table)
+library(Biostrings)
+```
+
+### Overview
+
+In the control batch DNA160609LC, samples 1-20 contain only spike-ins and primers (no DNA). During our pipeline, we run a spike removal tool that searches for a 9-bp barcode within fastq reads and removes those reads. After running this program on the spike-only samples, we still have reads in these samples.
+
+We need to find out what proportion of total reads are not spikes, as well as what the source of these reads are. One likely cause is from the p14 DNA that contaminated the batch. They could also be spikes that were not removed in the spike removal step.
+
+### Set up
+
+We need the PEAR'ed fastq files for samples 1-20. These will act as the baseline counts for each sample. The despiked fastq files produced by the spike removal tool will be our comparison counts. Lastly, we'll need the exported alignment files in order to determine p14 contamination.
+
+```{r, echo=FALSE}
+### Read in and sort pear files
+#pear.dir <- "/Volumes/DNA160609LC/peared_fastqs/counting/"
+#pear.files <- list.files(pear.dir)
+#pear.files <- pear.files[order(as.numeric(gsub(".*_S|\\.assem.*", '', pear.files)))]
+
+### Read in and sort despiked files
+despiked.dir <- "/Volumes/DNA160609LC/mixcr/counting/"
+despiked.files <- list.files(despiked.dir)
+despiked.files <- despiked.files[order(as.numeric(gsub(".*_S|\\.assem.*", '', despiked.files)))]
+
+### Read in and sort export_alignment files
+align.dir <- "/Volumes/DNA160609LC/mixcr/export_align/"
+align.files <- list.files(align.dir)
+align.files <- align.files[order(as.numeric(gsub(".*_S|_align.*", '', align.files)))]
+align.files <- align.files[1:19]
+```
+
+```{r counts, echo = F}
+### Read counts of PEAR files
+#pear.counts <- NULL
+#for (i in 1:length(pear.files)){
+#  curr.pear.count <- as.numeric(system(paste("grep -c '^@' ", pear.dir, pear.files[i], sep = ''), intern = T))
+#  pear.counts <- c(pear.counts, curr.pear.count)
+#} # for
+# Above takes too long, just did in bash and imported:
+pear.counts <- c(686374, 1209673,  865117, 1095477, 1445022, 1100437, 1433990, 1864230, 
+                 1328501, 1078247, 1916805, 1011097,  768413,  508421,  925440,  716742, 572435, 914924,  
+                 723413, 1169669)
+
+### Read counts of Despiked files
+despiked.counts <- NULL
+for (i in 1:length(despiked.files)){
+  curr.despiked.count <- as.numeric(system(paste("grep -c '^@' ", despiked.dir, despiked.files[i], sep = ''), intern = T))
+  despiked.counts[i] <- curr.despiked.count
+} # for
+```
+
+```{r p14, echo = F}
+### Reads in Despiked Files that map to p14 (also count vj's)
+p14.contamination <- NULL
+top.5 <- NULL
+for (i in 1:length(align.files)){
+  # Read Table
+  curr.align <- suppressWarnings(fread(paste(align.dir, align.files[i], sep = ''), na.strings = c('', ' ', NA),
+                      showProgress = F))
+  curr.align$`Best V hit` <- gsub("TRB|\\*00", '', curr.align$`Best V hit`)
+  curr.align$`Best J hit` <- gsub("TRB|\\*00", '', curr.align$`Best J hit`)
+  index <- gsub(".*_S|_align.*", '', align.files[i])
+  # p14 Contamination
+  curr.p14 <- curr.align[curr.align$`AA. Seq. CDR3` == "CASSDAGGRNTLYF",]
+  p14.contamination <- c(p14.contamination, length(curr.p14[,1]))
+  
+  # VJ counts
+  vj.counts <- curr.align[, .N, by=c("`Best V hit`", "`Best J hit`")]
+  
+  # Sort and extract
+vj.counts <- vj.counts[order(-N)]
+  top.vj <- vj.counts[1:5,]
+  top.vj$sample <- rep(index, 5)
+  top.vj$total.count <- rep(length(curr.align$`All V hits`), 5)
+  top.vj$proportion <- top.vj$N / top.vj$total.count * 100
+  top.vj <- top.vj[,.(`sample`, `total.count`, `Best V hit`, `Best J hit`, `N`, `proportion`)]
+  # Combine
+  top.5 <- rbind(top.5, top.vj)
+} # for
+
+ # curr.align.2 <- read.table(paste(align.dir, align.files[i], sep = ''), header = T, sep = '\t',
+ #                           stringsAsFactors = F, na.strings = c('', ' ', NA))
+ #   old.vj.counts <- count(curr.align.2, c("Best.V.hit", "Best.J.hit"))
+ #   old.vj.counts <- old.vj.counts[order(-old.vj.counts$freq),]
+ #  top.vj <- old.vj.counts[1:5,]
+ #  top.vj$sample <- rep(index, length(top.vj$Best.V.hit))
+ #  top.vj$total.count <- rep(length(curr.align[,1]), length(top.vj$Best.V.hit))
+ #  top.vj$proportion <- top.vj$freq / top.vj$total.count * 100
+ #  top.vj <- top.vj[,c(4, 5, 1, 2, 3, 6)]
+
+```
+
+### Analysis
+
+Using these files, we'll determine 
+
+1. The proportion of reads that aren't spikes
+2. The proportion of non-spiked reads that are from p14
+3. The proportion of reads that aren't spikes, but also are not p14 (unaccounted reads)
+
+```{r, echo = F}
+### Proportion of Total Reads that aren't spikes
+proportion.not.spikes <- despiked.counts / pear.counts * 100
+proportion.not.spikes
+summary(proportion.not.spikes)
+
+### Remove Sample 17 b/c not in export_align
+despiked.counts <- despiked.counts[-17]
+pear.counts <- pear.counts[-17]
+
+### Proportion of Despiked reads that are p14
+proportion.p14.of.despiked <- p14.contamination / despiked.counts * 100
+proportion.p14.of.despiked
+summary(proportion.p14.of.despiked)
+```
+
+Only a small percentage of the total reads are not the spike-ins (less than 1%). Of these non-spike reads, a small amount are accounted for by the p14 contamination, with the rest of unkown origin.
+
+```{r, echo = F}
+### Proportion of total reads that aren't spikes or p14
+unaccounted <- despiked.counts - p14.contamination
+proportion.not.spikes.or.p14 <- unaccounted / pear.counts * 100
+proportion.not.spikes.or.p14
+summary(proportion.not.spikes.or.p14)
+```
+
+Removing p14 contamination doesn't significantly change the proportion of contaminated reads. Are there any primer combinations that stand out as being overrepresented?
+
+```{r, echo = F}
+### Top 5 primer combinations
+top.5
+```
+
+None of the primer combinations have particularly high proportions. One thing of note, however, is that V13-1, V13-2, and V13-3 seem to appear often. We can group by V's instead of V/J and see if any particular V's are messing things up.
+
+```{r, echo = F}
+v.top.5 <- NULL
+for (i in 1:length(align.files)){
+  # Read Table
+  curr.align <- suppressWarnings(fread(paste(align.dir, align.files[i], sep = ''), na.strings = c('', ' ', NA),
+                      showProgress = F))
+  curr.align$`Best V hit` <- gsub("TRB|\\*00", '', curr.align$`Best V hit`)
+  curr.align$`Best J hit` <- gsub("TRB|\\*00", '', curr.align$`Best J hit`)
+  index <- gsub(".*_S|_align.*", '', align.files[i])
+  
+  # VJ counts
+  v.counts <- curr.align[, .N, `Best V hit`]
+  
+  # Sort and extract
+v.counts <- v.counts[order(-N)]
+  top.v <- v.counts[1:5,]
+  top.v$sample <- rep(index, 5)
+  top.v$total.count <- rep(length(curr.align$`All V hits`), 5)
+  top.v$proportion <- top.v$N / top.v$total.count * 100
+  top.v <- top.v[,.(`sample`, `total.count`, `Best V hit`,`N`, `proportion`)]
+  # Combine
+  v.top.5 <- rbind(v.top.5, top.v)
+} # for
+
+v.top.5
+
+summary.v.top.5 <- v.top.5[, sum(`proportion`), `sample`]
+summary(summary.v.top.5$V1)
+top.5.counts <- v.top.5[, .N, `Best V hit`]
+top.5.counts
+```
+
+The same 5 V's are almost always the top 5, and they generally make up about `r median(summary.v.top.5$V1)` percent of all of the reads. Is this the same in the spike count files?
+
+```{r, echo = F}
+### Get data
+spike.dir <- "/Volumes/DNA160609LC/spike_counts/25bp/spike_only_counts/"
+spike.files <- list.files(spike.dir)
+spike.files <- spike.files[order(as.numeric(gsub(".*_S|.assemb.*", '', spike.files)))]
+### remove S17
+spike.files <- spike.files[-17]
+
+### Read in Data and sort by count
+top.5.spike.25bp <- NULL
+for (i in 1:length(spike.files)){
+  curr.spike <- suppressWarnings(fread(paste(spike.dir, spike.files[i], sep = ''),
+                                       na.strings = c('', ' ', NA)))
+  index <- gsub(".*_S|.assemb.*", '', spike.files[i])
+  curr.spike$V4 <- gsub("V12-1-2-", "V12-1", curr.spike$V4)
+  curr.spike$V4 <- gsub("-$", '', curr.spike$V4)
+  group.v <- curr.spike[, sum(V6), V4]
+  group.v <- group.v[order(-V1)]
+  group.v <- group.v[1:5,]
+  group.v$sample <- rep(index, 5)
+  group.v$total.count <- rep(sum(curr.spike$V6), 5)
+  group.v$proportion <- group.v$V1 / group.v$total.count * 100
+  group.v <- group.v[,.(`sample`, `total.count`, `V4`, `V1`, `proportion`)]
+  top.5.spike.25bp <- rbind(top.5.spike.25bp, group.v)
+} # for
+
+summary.top.5.spike <- top.5.spike.25bp[, sum(`proportion`), `sample`]
+top.5.spike.counts <- top.5.spike.25bp[, .N, `V4`]
+top.5.spike.counts
+```
+
+The unique V's that are in the top 5 in at least one sample are not the same between the left-over reads and the spiked reads, although 3 of them are the same. In fact, V13-1, V1, and V24 are in the top 5 in all samples. Let's try and see if they're primer-dimers or some chimeric read caused by mis-amplification. Process:
+
+1. For each entry in an alignment file, extract the V and J hits
+2. Use V and J to extract appropriate 34-bp synthetic template from spike file
+3. Divide synthetic template into 6 9-bp strings ([1:9], [5:14], [10:19], [15:24], [20:29], [25:34])
+4. Search the fastq read of the alignment entry for these strings
+5. Observe distribution of hits
+
+```{r}
+# Each entry in the align file has a V and J as well as a sequence.
+# Can take the V and J identities and search for them in the spike file.
+# Then take the spike sequence from the spike file.
+# Split into a few substrings (first try strings of length 9, every 5)
+# Use vcountPattern to check if they're there.
+spikes <- read.table("~/Desktop/OHSU/tcr_spike/text_barcodesvj.txt", header = T, sep = ' ',
+                      stringsAsFactors = F)
+spikes.v122 <- spikes[spikes$V == "V12-1-2-",]
+spikes.v122$V <- gsub("V12-1-2-", "V12-2", spikes.v122$V)
+spikes$V <- gsub("V12-1-2-", "V12-1", spikes$V)
+spikes$V <- gsub("-$", "", spikes$V)
+
+test <- list()
+for (i in 1:length(align.files)){
+  curr.align <- suppressWarnings(fread(paste(align.dir, align.files[i], sep = ''), na.strings = c('', ' ', NA),
+                      showProgress = F))
+  curr.align$`Best V hit` <- gsub("TRB|\\*00", '', curr.align$`Best V hit`)
+  curr.align$`Best J hit` <- gsub("TRB|\\*00", '', curr.align$`Best J hit`)
+  index <- gsub(".*_S|_align.*", '', align.files[i])
+  align.query.results <- NULL
+  for (j in 1:length(curr.align$`Read(s) sequence`)){
+    V <- curr.align$`Best V hit`[j]
+    J <- curr.align$`Best J hit`[j]
+    if (V %in% spikes$V && J %in% spikes$J){
+      fastq.read <- curr.align$`Read(s) sequence`[j]
+      query <- spikes[spikes$V == V & spikes$J == J, "SPIKE"]
+      query <- unlist(strsplit(query, split = ''))
+      sub.query <- c(paste(query[1:9], collapse = ''), paste(query[5:14], collapse = ''),
+                     paste(query[10:19], collapse = ''), paste(query[15:24], collapse = ''),
+                     paste(query[20:29], collapse = ''), paste(query[25:34], collapse = ''))
+      query.results <- vector(mode = "numeric", length = 6)
+      for (k in 1:length(sub.query)){
+        query.results[k] <- vcountPattern(sub.query[k], fastq.read)
+      } # for k
+      align.query.results <- rbind(align.query.results, query.results)
+    } # if
+  } # for j
+  test[[i]] <- align.query.results
+} # for i
+
+# Now we have a list containing 19 data frames with nrow = number of alignments and ncol = 6 (one for each subset of query)
+# For each list, take the row sum and add it as a column
+for (i in 1:length(test)){
+  test[[i]] <- data.table(test[[i]])
+  test[[i]]$sum <- apply(test[[i]], 1, sum)
+}
+
+results <- matrix(nrow = length(test), ncol = 9)
+for (i in 1:length(test)){
+  pass.4 <- length(test[[i]][test[[i]]$sum >= 4,`sum`])
+  pass.3 <- length(test[[i]][test[[i]]$sum >= 3,`sum`])
+  pass.2 <- length(test[[i]][test[[i]]$sum >= 2,`sum`])
+  pass.1 <- length(test[[i]][test[[i]]$sum >= 1,`sum`])
+  total <- length(test[[i]][,`sum`])
+  proportion.4 <- round(pass.4 / total * 100, digits = 2)
+  proportion.3 <- round(pass.3 / total * 100, digits = 2)
+  proportion.2 <- round(pass.2 / total * 100, digits = 2)
+  proportion.1 <- round(pass.1 / total * 100, digits = 2)
+  new.row <- c(total, pass.4, proportion.4, pass.3, proportion.3, pass.2, proportion.2, pass.1, proportion.1)
+  results[i,] <- new.row
+}
+colnames(results) <- c("total.reads", "Reads.4.hits", "Proportion.4", "Reads.3.hits",
+                       "Proportion.3", "Reads.2.hits", "Proportion.2", "Reads.1.hit", "Proportion.1")
+rownames(results) <- c(1:16, 18:20)
+results
+```
+
+Using this method, it looks like 50-60 percent of the reads are some version of spikes. One suggestion from this is to incorporate the secondary barcode from the spike file during our spike removal step. A spike sequence is is 34-bp long, the first 9 are a universal spike barcode, the last 9 are a different universal barcode, and the remaining 16 are unique identifiers for each individual spike.
+
+Currently, we identify spikes for removal using the first 9-bp sequence only. We could potentially use both the first and the second 9-bp sequences to remove spikes.
