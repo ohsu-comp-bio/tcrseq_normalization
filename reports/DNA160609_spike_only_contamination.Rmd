@@ -73,7 +73,7 @@ for (i in 1:length(align.files)){
   index <- gsub(".*_S|_align.*", '', align.files[i])
   # p14 Contamination
   curr.p14 <- curr.align[curr.align$`AA. Seq. CDR3` == "CASSDAGGRNTLYF",]
-  p14.contamination <- c(p14.contamination, length(curr.p14[,1]))
+  p14.contamination <- c(p14.contamination, length(curr.p14$`Read(s) sequence`))
   
   # VJ counts
   vj.counts <- curr.align[, .N, by=c("`Best V hit`", "`Best J hit`")]
@@ -287,4 +287,40 @@ results
 
 Using this method, it looks like 50-60 percent of the reads are some version of spikes. One suggestion from this is to incorporate the secondary barcode from the spike file during our spike removal step. A spike sequence is is 34-bp long, the first 9 are a universal spike barcode, the last 9 are a different universal barcode, and the remaining 16 are unique identifiers for each individual spike.
 
-Currently, we identify spikes for removal using the first 9-bp sequence only. We could potentially use both the first and the second 9-bp sequences to remove spikes.
+Currently, we identify spikes for removal using the first 9-bp sequence only. We could potentially use both the first and the second 9-bp sequences to remove spikes. After implementing the new spike finding, we can compare the identified spikes between the two techniques.
+
+```{r new despiked, echo = F}
+### Read in and sort despiked files
+new.despiked.dir <- "/Volumes/DNA160609LC/double_mixcr/despiked_fastqs/"
+new.despiked.files <- list.files(new.despiked.dir)
+new.despiked.files <- new.despiked.files[order(as.numeric(gsub(".*_S|\\.assem.*", '', new.despiked.files)))]
+
+new.despiked.counts <- NULL
+for (i in 1:length(new.despiked.files)){
+  curr.despiked.count <- as.numeric(system(paste("grep -c '^@' ", new.despiked.dir, new.despiked.files[i], sep = ''), intern = T))
+  new.despiked.counts[i] <- curr.despiked.count
+} # for
+
+new.despiked.counts
+new.despiked.counts <- new.despiked.counts[-17]
+
+spike.diff <- round(new.despiked.counts / despiked.counts * 100, digits = 2)
+spike.diff
+
+# Proportion of total reads not spikes with new removal tool
+new.proportion.not.spikes <- round(new.despiked.counts / pear.counts * 100, digits = 4)
+summary(new.proportion.not.spikes)
+
+### Proportion of total reads that aren't spikes or p14
+new.unaccounted <- new.despiked.counts - p14.contamination
+new.proportion.not.spikes.or.p14 <- round(new.unaccounted / pear.counts * 100, digits = 4)
+summary(proportion.not.spikes.or.p14)
+
+new.not.spikes <- data.frame("Sample" = c(seq(1:16), seq(18:20)), 
+                             "Proportion Not Spikes" = paste(new.proportion.not.spikes, "%", sep = ''),
+                             "Proportion Unaccounted" = paste(new.proportion.not.spikes.or.p14, "%", sep = ''))
+new.not.spikes
+```
+
+Now a very small amount of the data are not spikes or p14 (i.e. unaccounted for), but we still don't know where it comes from. I suggest that we BLAST these reads and try and see if they match to anything known.
+

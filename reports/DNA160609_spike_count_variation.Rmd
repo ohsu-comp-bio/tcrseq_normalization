@@ -8,6 +8,8 @@ output: pdf_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 spikes <- read.table("~/Desktop/OHSU/tcr_spike/text_barcodesvj.txt", header = T, sep = ' ', stringsAsFactors = F)
+library(ggplot2)
+library(reshape2)
 ```
 
 ### Overview
@@ -16,9 +18,8 @@ When testing primer independence using samples 1-20 from DNA160609LC, Burcu noti
 
 We can compare the 9-bp spike count totals with the PEAR fastq read counts and determine if the distributions are similar.
 
-#### Set-up
 
-```{r}
+```{r, echo = F}
 ### 9-bp counts
 spike.count.dir <- "/Volumes/DNA160609LC/spike_counts/9bp/counts/"
 spike.count.files <- list.files(spike.count.dir)
@@ -33,7 +34,7 @@ spike.count.files <- spike.count.files[1:20]
 ```
 
 #### Compare distributions
-```{r}
+```{r, echo = F}
 # Spike counts of 9-bp counts
 spike.counts <- NULL
 for (i in 1:length(spike.count.files)){
@@ -54,11 +55,15 @@ pear.counts <- c(686374, 1209673,  865117, 1095477, 1445022, 1100437, 1433990, 1
                  1328501, 1078247, 1916805, 1011097,  768413,  508421,  925440,  716742, 572435, 914924,  
                  723413, 1169669)
 
-spike.counts
-pear.counts
 
-plot(spike.counts, main = "Spike Counts")
-plot(pear.counts, main = "PEAR Counts")
+count.compare <- data.frame("Sample" = seq(1:20), "Spike.counts" = spike.counts, "Pear.counts" = pear.counts)
+count.compare
+
+count.compare.melt <- melt(count.compare, id.vars = "Sample", variable.name = "Count.type", value.name = "Count")
+
+gg.count.compare <- ggplot(count.compare.melt, aes(x = Count.type, Count)) +
+  ggtitle("Comparison of raw and spike counts")
+gg.count.compare + geom_point()
 ```
 
 We can see that the distributions are almost identical. These results suggest that the variation came from any of the following (or a combination of them):
@@ -69,4 +74,4 @@ We can see that the distributions are almost identical. These results suggest th
 
 ### Next Steps
 
-Do we have quantitative data of sample concentration prior to PCR (nanodrop or cubit?), if so, we should check that distribution. We can also ask Bob if he saw a
+Do we have quantitative data of sample concentration prior to PCR (nanodrop or cubit?), if so, we should check that distribution. We can also ask Bob if he saw a difference in seeds.
