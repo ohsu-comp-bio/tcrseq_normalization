@@ -61,7 +61,7 @@ count.compare
 
 count.compare.melt <- melt(count.compare, id.vars = "Sample", variable.name = "Count.type", value.name = "Count")
 
-gg.count.compare <- ggplot(count.compare.melt, aes(x = Count.type, Count)) +
+gg.count.compare <- ggplot(count.compare.melt, aes(x = Count.type, y = Count)) +
   ggtitle("Comparison of raw and spike counts")
 gg.count.compare + geom_point()
 ```
@@ -75,3 +75,109 @@ We can see that the distributions are almost identical. These results suggest th
 ### Next Steps
 
 Do we have quantitative data of sample concentration prior to PCR (nanodrop or cubit?), if so, we should check that distribution. We can also ask Bob if he saw a difference in seeds.
+
+### Compare with PCR Concentrations
+
+Is there a correlation between pcr concentration and spike counts
+
+```{r, echo = F}
+# Read in PCR data
+pcr.conc.data <- read.csv("~/Desktop/OHSU/tcr_spike/data/DNA160609LC/spike_only_pcr.csv",
+                          stringsAsFactors = F)
+
+# Make data frames
+# PCR1 Compare
+pcr1.counts <- cbind(pcr.conc.data[,c(1,2)], spike.counts)
+# PCR2 Compare
+pcr2.counts <- cbind(pcr.conc.data[,c(1,3)], spike.counts)
+
+# Make Models
+pcr1.model <- lm(spike.counts ~ PCR1, data = pcr1.counts)
+summary(pcr1.model)
+
+pcr2.model <- lm(spike.counts ~ PCR2, data = pcr2.counts)
+summary(pcr2.model)
+
+
+#Plots
+# PCR1
+pcr1.plot <- ggplot(pcr1.counts, aes(x = PCR1, y = spike.counts)) + geom_point() +
+  ggtitle("Sample Concentration after PCR1 \nvs. Spike Counts") +
+  xlab("DNA Concentration (ng/ul)") +
+  ylab("Spike Counts") +
+  ylim(min(pcr1.counts$spike.counts) *.9, max(pcr1.counts$spike.counts)* 1.1)
+pcr1.plot + stat_smooth(method = lm, se = F)
+# PCR2
+pcr2.plot <- ggplot(pcr2.counts, aes(x = PCR2, y = spike.counts)) + geom_point() +
+    ggtitle("Sample Concentration after PCR2 \nvs. Spike Counts") +
+  xlab("DNA Concentration (ng/ul)") +
+  ylab("Spike Counts") +
+  ylim(min(pcr1.counts$spike.counts) *.9, max(pcr1.counts$spike.counts)* 1.1)
+pcr2.plot + stat_smooth(method = lm, se = F)
+
+
+
+
+# Log stuff
+# PCR 1
+# data
+pcr1.log.counts <- cbind(pcr.conc.data[,c(1,2)], "spike.counts" = log2(spike.counts))
+pcr1.log.counts$PCR1 <- log2(pcr1.log.counts$PCR1)
+# Model
+pcr1.log.model <- lm(spike.counts ~ PCR1, data = pcr1.log.counts)
+summary(pcr1.log.model)
+# Plot
+pcr1.log.plot <- ggplot(pcr1.log.counts, aes(x = PCR1, y = spike.counts)) + geom_point() +
+  ggtitle("Sample Concentration after PCR1 \nvs. Spike Counts") +
+  xlab("log2(DNA Concentration) (ng/ul)") +
+  ylab("log2(Spike Counts)") +
+  ylim(min(pcr1.log.counts$spike.counts) *.9, max(pcr1.log.counts$spike.counts)* 1.1) +
+  annotate("text", x = 4.8, y = 22, label = paste("Adj. R2: ", round(summary(pcr1.log.model)$adj.r.squared, digits = 3)))
+pcr1.log.plot + stat_smooth(method = lm, se = F)
+
+#PCR1
+# data
+pcr2.log.counts <- cbind(pcr.conc.data[,c(1,3)], "spike.counts" = log2(spike.counts))
+pcr2.log.counts$PCR2 <- log2(pcr2.log.counts$PCR2)
+# Model
+pcr2.log.model <- lm(spike.counts ~ PCR2, data = pcr2.log.counts)
+summary(pcr2.log.model)
+# Plot
+pcr2.log.plot <- ggplot(pcr2.log.counts, aes(x = PCR2, y = spike.counts)) + geom_point() +
+  ggtitle("Sample Concentration after PCR2 \nvs. Spike Counts") +
+  xlab("log2(DNA Concentration) (ng/ul)") +
+  ylab("log2(Spike Counts)") +
+  ylim(min(pcr2.log.counts$spike.counts) *.9, max(pcr2.log.counts$spike.counts)* 1.1) +
+  annotate("text", x = 3.5, y = 22, label = paste("Adj. R2: ", round(summary(pcr2.log.model)$adj.r.squared, digits = 3)))
+pcr2.log.plot + stat_smooth(method = lm, se = F)
+
+
+
+
+```
+
+Looks like the pcr concentrations at the end of the second round correlate well with the spike counts observed in the samples.
+
+```{r, echo = F}
+# Variation between PCR1 and PCR2
+summary(pcr.conc.data$PCR1)
+mean(pcr.conc.data$PCR1)
+sd(pcr.conc.data$PCR1)
+range(pcr.conc.data$PCR1)[2] - range(pcr.conc.data$PCR1)[1]
+
+summary(pcr.conc.data$PCR2)
+mean(pcr.conc.data$PCR2)
+sd(pcr.conc.data$PCR2)
+range(pcr.conc.data$PCR2)[2] - range(pcr.conc.data$PCR2)[1]
+
+# Normalize by dividing by average
+pcr.conc.data$norm.pcr1 <- pcr.conc.data$PCR1 / mean(pcr.conc.data$PCR1)
+pcr.conc.data$norm.pcr2 <- pcr.conc.data$PCR2 / mean(pcr.conc.data$PCR2)
+
+summary(pcr.conc.data$norm.pcr1)
+summary(pcr.conc.data$norm.pcr2)
+
+
+```
+
+Much higher variation in the second 
