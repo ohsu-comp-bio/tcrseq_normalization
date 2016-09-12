@@ -19,9 +19,10 @@
 ##############
 
 ### Read in fasta files
-v.reads <- readFasta("~/BWA-MEM/fasta/trbv.fa")
-d.reads <- readFasta("~/BWA-MEM/fasta/trbd.fa")
-j.reads <- readFasta("~/BWA-MEM/fasta/trbj.fa")
+v.reads <- readFasta("~/BWA-MEM/seq_space_construction/fasta/trbv.fa")
+d.reads <- readFasta("~/BWA-MEM/seq_space_construction/fasta/trbd.fa")
+d.reads <- d.reads[1]
+j.reads <- readFasta("~/BWA-MEM/seq_space_construction/fasta/trbj.fa")
 
 #################
 ### Calculate ###
@@ -35,7 +36,7 @@ insert.lengths <- NULL
 for (i in 1:length(v.reads)){
   curr.v.seq <- v.reads@sread[i]
   curr.v.id <- v.reads@id[i]
-  curr.v.end <- as.numeric(gsub(".*-", '', curr.v.id))
+  curr.v.end <- as.numeric(gsub(".*-|_.*", '', curr.v.id))
   curr.v.start <- as.numeric(gsub(".*:|-.*", '', curr.v.id))
   ## During each V gene iteration, iterate through each D gene
   ## extract sequence and ID
@@ -51,17 +52,22 @@ for (i in 1:length(v.reads)){
       curr.j.seq <- j.reads@sread[k]
       curr.j.id <- j.reads@id[k]
       curr.j.start <-  as.numeric(gsub(".*:|-.*", '', curr.j.id))
-      curr.j.end <- as.numeric(gsub(".*-", '', curr.j.id))
+      curr.j.end <- as.numeric(gsub('[0-9]{1}:[0-9]{5,10}-|_.*', '', curr.j.id))
       curr.final.join <- paste(curr.first.join, curr.j.seq, sep = '')
+
+      ## Turn into a DNA sequence object and add custom header
+      curr.final.seq <- DNAStringSet(x = curr.final.join)
+      curr.final.seq@ranges@NAMES <- paste("6:", curr.v.start, "-", curr.j.end, "_V:", i, "_D:", j, "_J:", k, sep = '')
+
+      ## Write to output file
+      writeFasta(curr.final.seq, "~/BWA-MEM/ref/VDJ.one.copy.fa", mode = "a")
+
       ## Calculate insert length - end of V gene to beginning of J gene
       ## Append to data frame
       curr.ins.length <- curr.j.start - curr.v.end
       ins.row <- c(curr.v.end, curr.j.start, curr.ins.length)
       insert.lengths <- rbind(insert.lengths, ins.row)
-      ## Create new header for fastq with starting and ending bp's as well as V, D, and J gene identifiers
-      curr.header <- paste(">6:", curr.v.start, "-", curr.j.end, "_V:", i, "_D:", j, "_J:", k, sep = '')
-      ## Add header and new sequence of current VDJ to output table
-      output <- rbind(output, curr.header, curr.final.join)
+
       ## Below is for iteration checking
       ## cat(i, j, k, '\n')
     } # for k
@@ -73,7 +79,6 @@ insert.lengths <- data.frame(insert.lengths)
 colnames(insert.lengths) <- c("V.end", "J.start", "Insert.Length")
 
 ## Write output
-write.table(output, file = "~/BWA-MEM/ref/new.seq.space.fa", col.names = F, row.names = F, quote = F, sep = '')
 write.table(insert.lengths, file = "~/BWA-MEM/ref/insert.lengths.txt", quote = F, row.names = F, col.names = T,
             sep = '\t')
 
@@ -91,3 +96,4 @@ ins.min <- min(insert.lengths$Insert.Length)
 ins.max <- max(insert.lengths$Insert.Length)
 
 ins.length.summary <- c("mean" = ins.mean, "stdev" = ins.stdev, "min" = ins.min, "max" = ins.max)
+
