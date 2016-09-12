@@ -1,0 +1,132 @@
+---
+title: "Spike Coverage"
+author: "Wes Horton"
+date: "September 12, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(plyr)
+library(knitr)
+```
+
+## Background
+
+We need to determine the appropriate covereage of TCR sequences that will enable us to detect unique CDR3 regions that exist at low concentrations within the sample. We would like to achieve 30-50x covereage, on average, for each unique sequence in our reaction mixture. The resulting coverage is influenced both by the amount of TCR sequence in the reaction mixture, as well as the amplification efficiencies of the different primers. 
+
+To help determine the appropriate concentration of DNA required for a sample, we're going to use the amplification of synthetic templates (spikes) to determine the relative efficiencies of the primers. We will use data from three different batches: DNA160609LC, DNA160708LC, and DNA160803LC. For the first two batches, we will only use samples that contain spike sequence only (samples 1-20 and 1-10, respectively). The third batch is a normal sequencing data set containing TCR sequence as well as spike sequence.
+
+```{r input,echo = F}
+spikeCountDir_v <- "~/Desktop/OHSU/tcr_spike/data/spike_coverage/"
+spikeCountFiles_v <- list.files(spikeCountDir_v)
+sampleSubsets_lsv <- list(c(1:20), c(1:10), c(1:57,59:93)) # S58 has zero counts across the board
+spikeNames_dt <- fread("~/Desktop/OHSU/tcr_spike/text_barcodesvj.txt", select = c("V", "J"))
+spikeNames_v <- paste(spikeNames_dt$V, spikeNames_dt$J, sep = '')
+```
+
+## Process
+
+Our input files contain one row for each sample, a few summary columns, and then one column for each spike (there are 260 total). Each cell is the count for that particular spike in that particular sample. Files need to be subset to select appropriate samples. For each batch of samples, we want to see the distribution of mean and median counts across spikes, as well as the two lowest spike values and their labels, for each sample. The latter can also be summarized per batch.
+
+```{r calculation, echo=FALSE}
+meanCountSummary_dt <- data.table(matrix(nrow = 260, ncol = 3))
+medianCountSummary_dt <- data.table(matrix(nrow = 260, ncol = 3))
+minCounts_lsdt <- list()
+
+for (i in 1:length(spikeCountFiles_v)){
+  # Get a file
+  currSpikeCounts_dt <- fread(paste(spikeCountDir_v, spikeCountFiles_v[i], sep = ''), sep = ',')
+  # Change spike names
+  names(currSpikeCounts_dt)[5:264] <- spikeNames_v
+  # Get batch name
+  currName_v <- gsub(".*/|_S.*", '', currSpikeCounts_dt$sample.id[1])
+  # Make new column of just sample numbers
+  currSpikeCounts_dt$sample.num <- as.numeric(gsub(".*_S|.assemb.*", '', currSpikeCounts_dt$sample.id))
+  # Subset for appropriate samples
+  currSpikeCounts_dt <- currSpikeCounts_dt[`sample.num` %in% sampleSubsets_lsv[[i]]]
+  # Get mean and median of each spike
+  currSpikeCountsMeans_v <- apply(currSpikeCounts_dt[,5:264, with = F], 2, mean)
+  currSpikeCountsMedians_v <- apply(currSpikeCounts_dt[,5:264, with = F], 2, median)
+  # Add to output
+  meanCountSummary_dt[,i := currSpikeCountsMeans_v, with = F]
+  medianCountSummary_dt[,i := currSpikeCountsMedians_v, with = F]
+  # Get two lowest spike IDs and their counts (for each sample)
+  currMinSpike_dt <- as.data.table(t(apply(currSpikeCounts_dt[,5:264, with = F], 1, function(x) {my.sort <- sort(x)
+                                                        my.min <- my.sort[1]
+                                                        my.min.id <- names(my.sort)[1]
+                                                        my.sec <- my.sort[2]
+                                                        my.sec.id <- names(my.sort)[2]
+                                                        my.max <- my.sort[length(my.sort)]
+                                                        my.max.id <- names(my.sort)[length(my.sort)]
+                                                        return(c(my.min.id, my.min, my.sec.id, my.sec, my.max.id, my.max))
+                                                        })), stringsAsFactors = F)
+  colnames(currMinSpike_dt) <- c("Min.ID", "Min", "Second.ID", "Second", "Max.ID", "Max")
+  # Add to list
+  minCounts_lsdt[[i]] <- currMinSpike_dt
+} # for
+names(minCounts_lsdt) <- c("DNA160609LC", "DNA160708LC", "DNA160803LC")
+names(meanCountSummary_dt) <- c("DNA160609LC", "DNA160708LC", "DNA160803LC")
+names(medianCountSummary_dt) <- c("DNA160609LC", "DNA160708LC", "DNA160803LC")
+
+```
+
+First we can look at the summaries of mean and median counts among our samples, both with raw data and graphically. These are the mean or median for all samples for each of the 260 spikes. So for example with DNA160609LC, the 20 values of the first spike (V1J1-1 or DM_1) are averaged, and again for the second spike, etc. Finally, the distribution of the mean counts for each of the 260 spikes is summarized.
+
+```{r summaries, echo = F}
+# Print summaries
+cat("Mean")
+kable(apply(meanCountSummary_dt, 2, summary))
+cat("Median")
+kable(apply(medianCountSummary_dt, 2, summary))
+# Get densities
+meanDensities_lsls <- apply(meanCountSummary_dt, 2, function(x) density(x))
+medianDensities_lsls <- apply(medianCountSummary_dt, 2, function(x) density(x))
+# Plot
+par(mfrow=c(1,1))
+plot(meanDensities_lsls$DNA160609LC, main = "Mean Spike Counts", ylim = c(0, 0.0003), xlim = c(0,15000), col = "green")
+lines(meanDensities_lsls$DNA160708LC, col = "red")
+lines(meanDensities_lsls$DNA160803LC, col = "blue")
+legend(3000, 0.0003, c("DNA160609LC (spikes)", "DNA160708LC (spikes)", "DNA160803LC (TCR)"),
+       lty=c(1,1,1), lwd=c(2.5,2.5,2.5), col = c("green", "red", "blue"), bty="n")
+par(mfrow=c(1,3))
+hist(meanCountSummary_dt$DNA160609LC, breaks = 20, xlim = c(0,15000), ylim = c(0,40),
+     col = rgb(0, 1, 0, 0.5), main = NULL, xlab = "DNA160609LC")
+hist(meanCountSummary_dt$DNA160708LC, breaks = 20, xlim = c(0,15000), ylim = c(0,40),
+     col = rgb(1, 0, 0, 0.5), main = "Mean Spike Counts", xlab = "DNA160708LC", ylab = NULL)
+hist(meanCountSummary_dt$DNA160803LC, breaks = 20, xlim = c(0,15000), ylim = c(0,40),
+     col = rgb(0, 0, 1, 0.5), main = NULL, xlab = "DNA160803LC", ylab = NULL)
+
+par(mfrow=c(1,1))
+plot(medianDensities_lsls$DNA160609LC, main = "Median Spike Counts", ylim = c(0, 0.00041), xlim = c(0,15000), col = "green")
+lines(medianDensities_lsls$DNA160708LC, col = "red")
+lines(medianDensities_lsls$DNA160803LC, col = "blue")
+legend(3000, 0.0003, c("DNA160609LC (spikes)", "DNA160708LC (spikes)", "DNA160803LC (TCR)"),
+       lty=c(1,1,1), lwd=c(2.5,2.5,2.5), col = c("green", "red", "blue"), bty="n")
+par(mfrow=c(1,3))
+hist(medianCountSummary_dt$DNA160609LC, breaks = 20, xlim = c(0,15000), ylim = c(0,40),
+     col = rgb(0, 1, 0, 0.5), main = NULL, xlab = "DNA160609LC")
+hist(medianCountSummary_dt$DNA160708LC, breaks = 20, xlim = c(0,15000), ylim = c(0,40),
+     col = rgb(1, 0, 0, 0.5), main = "Median Spike Counts", xlab = "DNA160708LC", ylab = '')
+hist(medianCountSummary_dt$DNA160803LC, breaks = 20, xlim = c(0,15000), ylim = c(0,40),
+     col = rgb(0, 0, 1, 0.5), ylab = NULL, main = NULL, xlab = "DNA160803LC")
+```
+The spread is relatively large, about two orders of magnitude between maximum and minimum.
+
+We are also interested in the lowest coverage spikes, as these will determine which CDR3s we would theoretically be able to observe. Here we have the names and counts of the two lowest spikes for each sample in our three batches.
+```{r minimums, echo = F}
+lapply(minCounts_lsdt, function(x) kable(x))
+```
+
+We can also count the occurrences of each spike:
+```{r min counts, echo = F}
+minOccurrences_lsdt <- lapply(minCounts_lsdt, 
+                               function(x){
+                                 one <- count(x[,1, with = F])
+                                 two <- count(x[,3, with = F])
+                                 #three <- count(x[,5, with = F])
+                                 return(list(one, two))
+                               } )
+minOccurrences_lsdt
+```
